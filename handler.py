@@ -32,7 +32,7 @@ def _bootstrap() -> None:
         cfg = get_config()
     except Exception:
         logger.exception(
-            "Fatal: failed to load Config – ensure RESEND_API_KEY, OPENAI_API_KEY, "
+            "Fatal: failed to load Config – ensure RESEND_API_KEY, MISTRAL_API_KEY, "
             "COMPANY_NAME, FROM_ADDRESS, and RESEND_WEBHOOK_SECRET are set."
         )
         raise
@@ -55,8 +55,8 @@ def handle(event, context):
         logger.error("Failed to parse request body: %s", exc)
         return {"statusCode": 200, "body": "bad request"}
 
-    from_addr = body.get("From") or body.get("from")
-    attachments = body.get("Attachments") or body.get("attachments") or []
+    from_addr = body.get("from")
+    attachments = body.get("attachments") or []
 
     if not from_addr:
         logger.info("No From address – ignoring.")
@@ -75,7 +75,7 @@ def handle(event, context):
             logger.info("No PDF attachment found – ignoring.")
             return {"statusCode": 200, "body": "ok"}
 
-        pdf_b64 = att.get("Content") or att.get("content", "")
+        pdf_b64 = att.get("content") or ""
         raw_text = extract_pdf_text(pdf_b64)
         logger.info("Extracted %d chars of text from PDF.", len(raw_text))
 
