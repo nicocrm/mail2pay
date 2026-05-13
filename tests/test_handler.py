@@ -59,9 +59,11 @@ def reset_handler_globals():
     import handler
     handler._cfg = None
     handler._extractor = None
+    handler._mailer = None
     yield
     handler._cfg = None
     handler._extractor = None
+    handler._mailer = None
 
 
 def _run_handler(monkeypatch, payment: PaymentDetails, env: dict | None = None):
@@ -87,7 +89,7 @@ def _run_handler(monkeypatch, payment: PaymentDetails, env: dict | None = None):
 
     resend_mock = MagicMock()
     with patch("resend.Emails.send", resend_mock), \
-         patch("handler._verify_webhook", return_value=True):
+         patch("handler.verify_webhook", return_value=True):
         import handler
         result = handler.handle(_make_event(_make_pdf_b64()), context=None)
 
@@ -131,7 +133,7 @@ def test_handler_no_attachments_returns_ok(monkeypatch):
     }.items():
         monkeypatch.setenv(k, v)
 
-    with patch("handler._verify_webhook", return_value=True):
+    with patch("handler.verify_webhook", return_value=True):
         import handler
         event = {"body": json.dumps({"From": "a@b.com", "Attachments": []})}
         result = handler.handle(event, context=None)
@@ -146,7 +148,7 @@ def test_handler_no_from_returns_ok(monkeypatch):
     }.items():
         monkeypatch.setenv(k, v)
 
-    with patch("handler._verify_webhook", return_value=True):
+    with patch("handler.verify_webhook", return_value=True):
         import handler
         event = {"body": json.dumps({"Attachments": []})}
         result = handler.handle(event, context=None)
@@ -154,7 +156,7 @@ def test_handler_no_from_returns_ok(monkeypatch):
 
 
 def test_handler_invalid_signature_returns_ok(monkeypatch):
-    """Requests with bad webhook signatures are silently dropped (200 ok)."""
+    """Requests with bad webhook signatures are dropped: 200 returned, Resend never called."""
     for k, v in {
         "RESEND_API_KEY": "r", "OPENAI_API_KEY": "o",
         "COMPANY_NAME": "C", "FROM_ADDRESS": "f@f.com",
@@ -162,9 +164,12 @@ def test_handler_invalid_signature_returns_ok(monkeypatch):
     }.items():
         monkeypatch.setenv(k, v)
 
-    # _verify_webhook returns False → handler must return 200 without processing
-    with patch("handler._verify_webhook", return_value=False):
+    resend_mock = MagicMock()
+    with patch("resend.Emails.send", resend_mock), \
+         patch("handler.verify_webhook", return_value=False):
         import handler
         event = {"body": json.dumps({"From": "attacker@evil.com", "Attachments": []})}
         result = handler.handle(event, context=None)
+
     assert result["statusCode"] == 200
+    resend_mock.assert_not_called()  # the security-critical assertion
