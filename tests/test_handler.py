@@ -26,12 +26,12 @@ def _make_pdf_b64() -> str:
 
 def _make_event(pdf_b64: str, from_addr: str = "sender@example.com") -> dict:
     body = {
-        "From": from_addr,
-        "Attachments": [
+        "from": from_addr,
+        "attachments": [
             {
-                "Filename": "invoice.pdf",
-                "ContentType": "application/pdf",
-                "Content": pdf_b64,
+                "filename": "invoice.pdf",
+                "content_type": "application/pdf",
+                "content": pdf_b64,
             }
         ],
     }
@@ -135,7 +135,7 @@ def test_handler_no_attachments_returns_ok(monkeypatch):
 
     with patch("handler.verify_webhook", return_value=True):
         import handler
-        event = {"body": json.dumps({"From": "a@b.com", "Attachments": []})}
+        event = {"body": json.dumps({"from": "a@b.com", "attachments": []})}
         result = handler.handle(event, context=None)
     assert result["statusCode"] == 200
 
@@ -150,7 +150,7 @@ def test_handler_no_from_returns_ok(monkeypatch):
 
     with patch("handler.verify_webhook", return_value=True):
         import handler
-        event = {"body": json.dumps({"Attachments": []})}
+        event = {"body": json.dumps({"attachments": []})}
         result = handler.handle(event, context=None)
     assert result["statusCode"] == 200
 

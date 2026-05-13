@@ -11,10 +11,6 @@ class Config(BaseSettings):
     from_address: str = Field(alias="FROM_ADDRESS")
     webhook_secret: str = Field(alias="RESEND_WEBHOOK_SECRET")
     llm_model: str = Field(default="mistral-small-latest", alias="LLM_MODEL")
-    app_url: str = Field(
-        default="https://github.com/ngaller/mail2pay", alias="APP_URL"
-    )
-    app_title: str = Field(default="mail2pay", alias="APP_TITLE")
 
 
 def get_config() -> Config:

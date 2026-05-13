@@ -24,21 +24,14 @@ def extract_pdf_text(base64_pdf: str) -> str:
 
 
 def pick_pdf_attachment(attachments: list[dict]) -> Optional[dict]:
-    """Return the first attachment that looks like a PDF, or None."""
+    """Return the first attachment that looks like a PDF, or None.
+
+    Field names follow Resend's inbound-email webhook schema
+    (``content_type``, ``filename``).
+    """
     for att in attachments:
-        content_type = (
-            att.get("ContentType")
-            or att.get("content_type")
-            or att.get("contentType")
-            or ""
-        )
-        filename = (
-            att.get("Filename")
-            or att.get("filename")
-            or att.get("Name")
-            or att.get("name")
-            or ""
-        )
+        content_type: str = att.get("content_type") or ""
+        filename: str = att.get("filename") or ""
         if content_type == "application/pdf" or filename.lower().endswith(".pdf"):
             return att
     return None
