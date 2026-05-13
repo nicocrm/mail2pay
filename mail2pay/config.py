@@ -3,16 +3,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Config(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env", extra="ignore", populate_by_name=True
-    )
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     resend_api_key: str = Field(alias="RESEND_API_KEY")
-    openai_api_key: str = Field(alias="OPENAI_API_KEY")
+    openrouter_api_key: str = Field(alias="OPENROUTER_API_KEY")
     company_name: str = Field(alias="COMPANY_NAME")
     from_address: str = Field(alias="FROM_ADDRESS")
-    openai_model: str = Field(default="gpt-5.4-mini", alias="OPENAI_MODEL")
     webhook_secret: str = Field(alias="RESEND_WEBHOOK_SECRET")
+    openrouter_model: str = Field(default="mistralai/mistral-small-2603", alias="OPENROUTER_MODEL")
+    openrouter_base_url: str = Field(
+        default="https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL"
+    )
 
 
 def get_config() -> Config:

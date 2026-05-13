@@ -11,43 +11,55 @@ from mail2pay.models import PaymentDetails
 # Mock-based tests (always run)
 # ---------------------------------------------------------------------------
 
-def test_mock_extractor_calls_responses_parse(mock_extractor):
+def test_mock_extractor_calls_chat_completions_parse(mock_extractor):
     """Verify the correct API call shape."""
     expected = PaymentDetails(amount="50.00", iban="BE68539007547034", communication="INV-001")
-    mock_extractor._mock_client.responses.parse.return_value.output_parsed = expected
+    mock_extractor._mock_client.chat.completions.parse.return_value.choices[0].message.parsed = expected
 
     result = mock_extractor.extract("some invoice text")
 
-    call_kwargs = mock_extractor._mock_client.responses.parse.call_args
-    assert call_kwargs.kwargs.get("text_format") is PaymentDetails or \
-           (call_kwargs.args and PaymentDetails in call_kwargs.args)
+    call_kwargs = mock_extractor._mock_client.chat.completions.parse.call_args
+    assert call_kwargs.kwargs.get("response_format") is PaymentDetails
     assert result is expected
 
 
 def test_mock_extractor_passes_correct_roles(mock_extractor):
-    mock_extractor._mock_client.responses.parse.return_value.output_parsed = PaymentDetails(
+    mock_extractor._mock_client.chat.completions.parse.return_value.choices[0].message.parsed = PaymentDetails(
         amount="10.00", iban="BE68539007547034", communication="ref"
     )
     mock_extractor.extract("invoice text here")
 
-    call_kwargs = mock_extractor._mock_client.responses.parse.call_args
-    # Accept both positional and keyword 'input'
-    input_messages = call_kwargs.kwargs.get("input") or call_kwargs.kwargs.get("messages")
-    roles = [m["role"] for m in input_messages]
+    call_kwargs = mock_extractor._mock_client.chat.completions.parse.call_args
+    messages = call_kwargs.kwargs.get("messages")
+    roles = [m["role"] for m in messages]
     assert roles == ["system", "user"]
-    user_content = input_messages[1]["content"]
-    assert "invoice text here" in user_content
+    assert "invoice text here" in messages[1]["content"]
 
 
 def test_mock_extractor_uses_configured_model(mock_extractor, cfg):
-    mock_extractor._mock_client.responses.parse.return_value.output_parsed = PaymentDetails(
+    mock_extractor._mock_client.chat.completions.parse.return_value.choices[0].message.parsed = PaymentDetails(
         amount="1.00", iban="BE68539007547034", communication="x"
     )
     mock_extractor.extract("t")
 
-    call_kwargs = mock_extractor._mock_client.responses.parse.call_args
-    model_arg = call_kwargs.kwargs.get("model") or call_kwargs.args[0]
-    assert model_arg == cfg.openai_model
+    call_kwargs = mock_extractor._mock_client.chat.completions.parse.call_args
+    assert call_kwargs.kwargs.get("model") == cfg.openrouter_model
+
+
+def test_mock_extractor_truncates_long_text(mock_extractor):
+    mock_extractor._mock_client.chat.completions.parse.return_value.choices[0].message.parsed = PaymentDetails(
+        amount="1.00", iban="BE68539007547034", communication="x"
+    )
+    mock_extractor.extract("Z" * 20_000)
+
+    messages = mock_extractor._mock_client.chat.completions.parse.call_args.kwargs["messages"]
+    assert messages[1]["content"].count("Z") == 10_000
+
+
+def test_mock_extractor_raises_on_none_parsed(mock_extractor):
+    mock_extractor._mock_client.chat.completions.parse.return_value.choices[0].message.parsed = None
+    with pytest.raises(ValueError):
+        mock_extractor.extract("t")
 
 
 # ---------------------------------------------------------------------------
