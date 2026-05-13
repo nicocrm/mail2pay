@@ -16,6 +16,7 @@ mail2pay/
 ├── handler.py              # Scaleway entry point (`handle`)
 ├── mail2pay/
 │   ├── __init__.py
+│   ├── config.py           # Pydantic Settings (env-based Config)
 │   ├── models.py           # Pydantic PaymentDetails
 │   ├── pdf.py              # extract_pdf_text
 │   ├── llm.py              # extract_details_via_llm (structured output)
@@ -23,6 +24,7 @@ mail2pay/
 │   └── mailer.py           # send_reply via Resend
 ├── tests/
 │   ├── __init__.py
+│   ├── test_config.py
 │   ├── test_qr.py
 │   ├── test_llm.py         # mocks OpenAI client
 │   └── test_handler.py     # end-to-end with mocks
@@ -40,10 +42,34 @@ Add dependencies:
 - `pypdf`
 - `segno`
 - `pydantic>=2`
+- `pydantic-settings>=2`
 
 Dev deps (optional group `dev`): `pytest`, `pytest-mock`.
 
-### 2. `mail2pay/models.py`
+### 2. `mail2pay/config.py`
+
+Centralised configuration via `pydantic-settings`. All env-var reads live here — no `os.environ` calls elsewhere in the package.
+
+```python
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Config(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    resend_api_key: str       = Field(alias="RESEND_API_KEY")
+    openai_api_key: str       = Field(alias="OPENAI_API_KEY")
+    company_name: str         = Field(alias="COMPANY_NAME")
+    from_address: str         = Field(alias="FROM_ADDRESS")
+    openai_model: str         = Field(default="gpt-5.4-mini", alias="OPENAI_MODEL")
+
+def get_config() -> Config:
+    return Config()  # instantiated lazily by handler
+```
+
+**Cold-start caching**: `handler.py` holds module-level globals `_cfg = None` and `_extractor = None`. On first `handle()` call, `handle()` calls a `_bootstrap()` helper that populates them; subsequent invocations reuse. Nothing is built at import time, so tests can monkeypatch env vars or the `Extractor` symbol before the first call.
+
+### 3. `mail2pay/models.py`
 ```python
 from pydantic import BaseModel, Field
 
@@ -53,62 +79,98 @@ class PaymentDetails(BaseModel):
     communication: str = Field(description="Structured or free-form payment reference")
 ```
 
-### 3. `mail2pay/llm.py`
-Use the OpenAI **structured outputs** API:
+### 3a. `mail2pay/models.py` – amount & communication normalization
+
+`PaymentDetails` performs light validation so downstream code can trust the data:
+- `amount`: validator parses to `Decimal`, rejects non-positive, formats back to 2-decimal string (`"50.00"`).
+- `iban`: validator strips spaces, uppercases, asserts `startswith("BE")` and `len == 16`.
+- `communication`: validator truncates to 140 chars (EPC max) and strips whitespace.
+
+This keeps `qr.py` a pure formatter.
+
+### 4. `mail2pay/llm.py`
+
+Expose an `Extractor` class that owns the OpenAI client. The client is created lazily if not injected — tests pass a mock, production code just does `Extractor(cfg)`.
+
 ```python
+from typing import Optional
 from openai import OpenAI
+from .config import Config
 from .models import PaymentDetails
 
-def extract_details_via_llm(client: OpenAI, raw_text: str, model: str = "gpt-4o-mini") -> PaymentDetails:
-    completion = client.beta.chat.completions.parse(
-        model=model,
-        messages=[
-            {"role": "system", "content": "Precise invoice data extractor."},
-            {"role": "user", "content": f"Extract amount, Belgian IBAN, and communication.\n\nInvoice:\n{raw_text}"},
-        ],
-        response_format=PaymentDetails,
-    )
-    return completion.choices[0].message.parsed
-```
-Note: SPEC mentions `gpt-5.4-mini` (non-existent). Default to `gpt-4o-mini`, overridable via env `OPENAI_MODEL`.
+class Extractor:
+    def __init__(self, cfg: Config, client: Optional[OpenAI] = None):
+        self._model = cfg.openai_model
+        self._client = client or OpenAI(api_key=cfg.openai_api_key)
 
-### 4. `mail2pay/pdf.py`
+    def extract(self, raw_text: str) -> PaymentDetails:
+        response = self._client.responses.parse(
+            model=self._model,
+            input=[
+                {"role": "system", "content": "Precise invoice data extractor."},
+                {"role": "user", "content":
+                    f"Extract amount, Belgian IBAN, and communication.\n\nInvoice:\n{raw_text}"},
+            ],
+            text_format=PaymentDetails,
+        )
+        return response.output_parsed
+```
+
+### 5. `mail2pay/pdf.py`
 `extract_pdf_text(base64_pdf: str) -> str` — decode, read with `pypdf.PdfReader`, concatenate pages.
 
-### 5. `mail2pay/qr.py`
+`pick_pdf_attachment(attachments: list[dict]) -> dict | None` — returns the first attachment whose `ContentType` is `application/pdf` or whose `Filename` ends in `.pdf` (case-insensitive). Used by `handler.py` so non-PDF attachments (signature images, logos) are skipped instead of crashing `pypdf`.
+
+### 6. `mail2pay/qr.py`
 `generate_qr_base64(payment: PaymentDetails, company_name: str) -> str` — build EPC v002 SCT string, `segno.make(..., error='M')`, save PNG to `BytesIO`, return base64.
 
-### 6. `mail2pay/mailer.py`
-`send_reply(to: str, qr_b64: str, from_addr: str)` — wraps `resend.Emails.send`.
+### 7. `mail2pay/mailer.py`
+`send_reply(cfg: Config, to: str, qr_b64: str)` — wraps `resend.Emails.send`, using `cfg.resend_api_key` and `cfg.from_address`.
 
-### 7. `handler.py`
+### 8. `handler.py`
 Scaleway entry point `handle(event, context)`:
-1. Parse `event["body"]` JSON.
-2. Pull `From` and `Attachments`; early-exit 200 when missing.
-3. Pipeline: `extract_pdf_text → extract_details_via_llm → generate_qr_base64 → send_reply`.
-4. Broad `except` → log + return 200 (prevent Resend retries).
+1. `_bootstrap()` lazily builds and caches `_cfg` and `_extractor` on first call.
+2. Parse `event["body"]` JSON.
+3. Pull `From` and `Attachments`; early-exit 200 when missing.
+4. `pick_pdf_attachment(attachments)`; early-exit 200 if no PDF.
+5. Pipeline: `extract_pdf_text → _extractor.extract(text) → generate_qr_base64(..., cfg.company_name) → send_reply(cfg, ...)`.
+6. Broad `except Exception` → `logging.exception("mail2pay failure")` (full stack trace) + return 200 to suppress Resend retries.
 
-Env vars read at module import: `RESEND_API_KEY`, `OPENAI_API_KEY`, `COMPANY_NAME`, optional `OPENAI_MODEL`, `FROM_ADDRESS`.
+Use the stdlib `logging` module configured at module load (`logging.basicConfig(level=logging.INFO)`); no bare `print`.
 
-### 8. Tests
+All configuration flows through the `Config` object — no `os.environ` in business modules.
+
+### 9. Tests
+- `test_config.py`: verify `Config` loads from env and rejects missing required vars.
 - `test_qr.py`: verify EPC string structure and that a PNG is produced & base64-decodable.
-- `test_llm.py`: mock `client.beta.chat.completions.parse` returning a `PaymentDetails`.
-- `test_handler.py`: feed a fake event (with a small generated PDF) and assert Resend send called with correct recipient/attachment.
+- `test_llm.py`: two fixtures in `conftest.py`:
+  - `real_extractor`: builds `Extractor(cfg)` with a real OpenAI client. Calls `pytest.skip(...)` when `OPENAI_API_KEY` is not set.
+  - `mock_extractor`: builds `Extractor(cfg, client=MagicMock())` and exposes the mock so tests can configure `client.responses.parse.return_value.output_parsed` and assert call args (`model`, `text_format=PaymentDetails`, `input` messages).
 
-### 9. README
-Short section on: env vars, `uv sync`, `uv run pytest`, Scaleway deploy notes (zip with `requirements.txt` exported via `uv export`).
+  Tests split by fixture:
+  - Mock-based: verify the call shape (model, input roles, `text_format=PaymentDetails`) and that `output_parsed` is returned unchanged.
+  - Real-based (skipped without key): run against `tests/fixtures/sample_invoice.txt` and assert plausibility — `iban` starts with `BE` and is 16 chars, `amount` parses as positive `Decimal`, `communication` non-empty.
+- `test_handler.py`: feed a fake event (with a small generated PDF) through the full pipeline.
+  - Resend is **always mocked** (monkeypatch `resend.Emails.send`) — no outbound email ever in tests.
+  - LLM path mirrors `test_llm.py`: live `Extractor` when `OPENAI_API_KEY` is present, else a simple stub class with an `extract(raw_text)` method is injected by monkeypatching the handler's `Extractor` symbol.
+  - Asserts Resend called once with correct `to`, subject, and a base64 PNG attachment (verify PNG magic bytes after decode).
 
-## Open Questions
+### 10. README & Makefile
+README covers: env vars, `uv sync`, `uv run pytest`, Scaleway deploy.
 
-1. **File layout**: keep single-file `handler.py` (matches spec closely, easier deploy) or modular package with tests (proposed)? 
--> use modular structure
-2. **From address**: hard-code or env var `FROM_ADDRESS`? (proposing env var.)
--> read from env
-3. **OpenAI model**: confirm replacement for the spec's `gpt-5.4-mini` → `gpt-4o-mini` default, configurable.
--> gpt-5.4-mini is correct (newer model you don't know about).  Make it a configuration variable read from env
-4. **Multiple PDFs**: process only first attachment (per spec) or loop all? Spec says first; keep that.
--> first only
-5. **Scaleway packaging**: do you want a `Makefile` / `build.sh` producing a deploy zip, or leave deployment manual?
--> include a Makefile to deploy, read creds etc from .env
-6. **Tests**: include pytest scaffolding now or defer?
--> use pytest, include test, keep it simple
+`Makefile` targets:
+- `requirements.txt`: `uv export --no-hashes --format requirements-txt -o requirements.txt` (Scaleway consumes this).
+- `build`: produces `dist/mail2pay.zip` containing `handler.py`, the `mail2pay/` package, and `requirements.txt`.
+- `deploy`: loads `.env` and invokes Scaleway CLI to upload the zip.
+- `test`: `uv run pytest`.
+
+## Resolved Decisions
+
+1. **File layout**: modular package (`mail2pay/` + thin `handler.py`).
+2. **From address**: `FROM_ADDRESS` env var via `Config`.
+3. **OpenAI model**: default `gpt-5.4-mini`, overridable via `OPENAI_MODEL` env var.
+4. **Multiple PDFs**: process first attachment only.
+5. **Scaleway packaging**: include a `Makefile` that builds/deploys, reading creds from `.env`.
+6. **Tests**: pytest, kept simple; live OpenAI when key present, mocked otherwise; Resend always mocked.
+
+No open questions remaining — ready to implement on your signal.
