@@ -37,12 +37,12 @@ Alternative: single-file `handler.py` per spec. Proposed modular split keeps the
 
 ### 1. `pyproject.toml`
 Add dependencies:
-- `openai>=1.50` (supports `responses.parse` / `beta.chat.completions.parse`)
+- `openai` 
 - `resend`
 - `pypdf`
 - `segno`
-- `pydantic>=2`
-- `pydantic-settings>=2`
+- `pydantic`
+- `pydantic-settings`
 
 Dev deps (optional group `dev`): `pytest`, `pytest-mock`.
 
