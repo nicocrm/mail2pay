@@ -1,48 +1,51 @@
 import json
 import logging
+from typing import Any
+
+from mail2pay.webhook import verify_webhook
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Module-level cache – populated on first invocation (cold-start optimisation).
-_cfg = None
-_extractor = None
+_cfg: Any = None
+_extractor: Any = None
+_mailer: Any = None
 
 
-def _bootstrap():
-    global _cfg, _extractor
-    if _cfg is None:
-        from mail2pay.config import get_config
-        from mail2pay.llm import Extractor
-        import resend
+def _bootstrap() -> None:
+    """Initialise shared singletons on the first request.
 
-        _cfg = get_config()
-        _extractor = Extractor(_cfg)
-        resend.api_key = _cfg.resend_api_key  # set once at bootstrap
+    Intentionally fail loud: if required env vars are absent the exception
+    propagates, Scaleway returns a 500, and the misconfiguration is visible
+    immediately in logs rather than being silently swallowed.
+    """
+    global _cfg, _extractor, _mailer
+    if _cfg is not None:
+        return
 
+    from mail2pay.config import get_config
+    from mail2pay.llm import Extractor
+    from mail2pay.mailer import Mailer
 
-def _verify_webhook(event: dict, secret: str) -> bool:
-    """Verify Resend webhook signature via svix."""
-    from svix.webhooks import Webhook, WebhookVerificationError
-
-    headers = event.get("headers") or {}
-    # Normalise to lowercase keys (Scaleway may vary casing)
-    headers = {k.lower(): v for k, v in headers.items()}
-    payload = (event.get("body") or "").encode()
-
-    wh = Webhook(secret)
     try:
-        wh.verify(payload, headers)
-        return True
-    except WebhookVerificationError:
-        return False
+        cfg = get_config()
+    except Exception:
+        logger.exception(
+            "Fatal: failed to load Config – ensure RESEND_API_KEY, OPENAI_API_KEY, "
+            "COMPANY_NAME, FROM_ADDRESS, and RESEND_WEBHOOK_SECRET are set."
+        )
+        raise
+
+    _cfg = cfg
+    _extractor = Extractor(_cfg)
+    _mailer = Mailer(_cfg)  # also sets resend.api_key
 
 
 def handle(event, context):
     _bootstrap()
-    assert _cfg is not None and _extractor is not None
 
-    if not _verify_webhook(event, _cfg.webhook_secret):
+    if not verify_webhook(event, _cfg.webhook_secret):
         logger.warning("Webhook signature verification failed – ignoring request.")
         return {"statusCode": 200, "body": "ok"}
 
@@ -66,7 +69,6 @@ def handle(event, context):
     try:
         from mail2pay.pdf import extract_pdf_text, pick_pdf_attachment
         from mail2pay.qr import generate_qr_base64
-        from mail2pay.mailer import send_reply
 
         att = pick_pdf_attachment(attachments)
         if att is None:
@@ -83,8 +85,8 @@ def handle(event, context):
         qr_b64 = generate_qr_base64(payment, _cfg.company_name)
         logger.info("QR code generated (%d bytes base64).", len(qr_b64))
 
-        send_reply(_cfg, from_addr, qr_b64)
-        logger.info("Reply sent to %s.", from_addr)
+        _mailer.send_reply(from_addr, qr_b64)
+        logger.debug("Reply sent to %s.", from_addr)  # PII – debug only
 
     except Exception:
         logger.exception("mail2pay failure")
