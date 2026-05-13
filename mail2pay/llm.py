@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-from openai import OpenAI
+from mistralai.client import Mistral
 
 from .config import Config
 from .models import PaymentDetails
@@ -18,16 +18,9 @@ class Extractor:
         "in the required JSON schema. Do not include any other text."
     )
 
-    def __init__(self, cfg: Config, client: Optional[OpenAI] = None):
-        self._model = cfg.openrouter_model
-        self._client = client or OpenAI(
-            api_key=cfg.openrouter_api_key,
-            base_url=cfg.openrouter_base_url,
-            default_headers={
-                "HTTP-Referer": cfg.app_url,
-                "X-Title": cfg.app_title,
-            },
-        )
+    def __init__(self, cfg: Config, client: Optional[Mistral] = None):
+        self._model = cfg.llm_model
+        self._client = client or Mistral(api_key=cfg.mistral_api_key)
 
     def extract(self, raw_text: str) -> PaymentDetails:
         if len(raw_text) > _MAX_TEXT_CHARS:
@@ -38,7 +31,7 @@ class Extractor:
             )
             raw_text = raw_text[:_MAX_TEXT_CHARS]
 
-        response = self._client.chat.completions.parse(
+        response = self._client.chat.parse(
             model=self._model,
             messages=[
                 {"role": "system", "content": self._SYSTEM_PROMPT},
@@ -51,8 +44,10 @@ class Extractor:
                 },
             ],
             response_format=PaymentDetails,
+            temperature=0,
         )
-        parsed = response.choices[0].message.parsed
+        choices = response.choices
+        parsed = choices[0].message.parsed if choices and choices[0].message else None
         if parsed is None:
             raise ValueError(
                 "LLM returned no structured output "

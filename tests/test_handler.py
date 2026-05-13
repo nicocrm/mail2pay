@@ -71,7 +71,7 @@ def _run_handler(monkeypatch, payment: PaymentDetails, env: dict | None = None):
     env = env or {}
     base_env = {
         "RESEND_API_KEY": "test-resend",
-        "OPENROUTER_API_KEY": "test-openrouter",
+        "MISTRAL_API_KEY": "test-mistral",
         "COMPANY_NAME": "Test Corp",
         "FROM_ADDRESS": "noreply@test.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
@@ -80,7 +80,7 @@ def _run_handler(monkeypatch, payment: PaymentDetails, env: dict | None = None):
         monkeypatch.setenv(k, v)
 
     import os
-    live_key = os.environ.get("OPENROUTER_API_KEY")
+    live_key = os.environ.get("MISTRAL_API_KEY")
     use_live = live_key and not live_key.startswith("test-")
 
     if not use_live:
@@ -127,7 +127,7 @@ def test_handler_attaches_png(monkeypatch):
 
 def test_handler_no_attachments_returns_ok(monkeypatch):
     for k, v in {
-        "RESEND_API_KEY": "r", "OPENROUTER_API_KEY": "test-openrouter",
+        "RESEND_API_KEY": "r", "MISTRAL_API_KEY": "test-mistral",
         "COMPANY_NAME": "C", "FROM_ADDRESS": "f@f.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
     }.items():
@@ -142,7 +142,7 @@ def test_handler_no_attachments_returns_ok(monkeypatch):
 
 def test_handler_no_from_returns_ok(monkeypatch):
     for k, v in {
-        "RESEND_API_KEY": "r", "OPENROUTER_API_KEY": "test-openrouter",
+        "RESEND_API_KEY": "r", "MISTRAL_API_KEY": "test-mistral",
         "COMPANY_NAME": "C", "FROM_ADDRESS": "f@f.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
     }.items():
@@ -158,7 +158,7 @@ def test_handler_no_from_returns_ok(monkeypatch):
 def test_handler_invalid_signature_returns_ok(monkeypatch):
     """Requests with bad webhook signatures are dropped: 200 returned, Resend never called."""
     for k, v in {
-        "RESEND_API_KEY": "r", "OPENROUTER_API_KEY": "test-openrouter",
+        "RESEND_API_KEY": "r", "MISTRAL_API_KEY": "test-mistral",
         "COMPANY_NAME": "C", "FROM_ADDRESS": "f@f.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
     }.items():
