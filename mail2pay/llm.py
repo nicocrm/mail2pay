@@ -12,11 +12,21 @@ _MAX_TEXT_CHARS = 10_000
 
 
 class Extractor:
+    _SYSTEM_PROMPT = (
+        "You extract structured payment data from invoice text. "
+        "Return exactly three fields (amount, Belgian IBAN, communication) "
+        "in the required JSON schema. Do not include any other text."
+    )
+
     def __init__(self, cfg: Config, client: Optional[OpenAI] = None):
         self._model = cfg.openrouter_model
         self._client = client or OpenAI(
             api_key=cfg.openrouter_api_key,
             base_url=cfg.openrouter_base_url,
+            default_headers={
+                "HTTP-Referer": cfg.app_url,
+                "X-Title": cfg.app_title,
+            },
         )
 
     def extract(self, raw_text: str) -> PaymentDetails:
@@ -31,7 +41,7 @@ class Extractor:
         response = self._client.chat.completions.parse(
             model=self._model,
             messages=[
-                {"role": "system", "content": "Precise invoice data extractor."},
+                {"role": "system", "content": self._SYSTEM_PROMPT},
                 {
                     "role": "user",
                     "content": (
@@ -45,6 +55,7 @@ class Extractor:
         parsed = response.choices[0].message.parsed
         if parsed is None:
             raise ValueError(
-                "LLM returned no structured output (refusal or content filter)"
+                "LLM returned no structured output "
+                "(refusal, content filter, or model lacks structured-output support)"
             )
         return parsed

@@ -63,7 +63,7 @@ def test_mock_extractor_raises_on_none_parsed(mock_extractor):
 
 
 # ---------------------------------------------------------------------------
-# Live tests (skipped without OPENAI_API_KEY)
+# Live tests (skipped without OPENROUTER_API_KEY)
 # ---------------------------------------------------------------------------
 
 def test_real_extractor_returns_plausible_result(real_extractor):

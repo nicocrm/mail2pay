@@ -20,7 +20,7 @@ def _make_cfg(**overrides) -> Config:
         RESEND_WEBHOOK_SECRET="whsec_dGVzdHNlY3JldA==",
     )
     defaults.update(overrides)
-    return Config(**defaults)  # type: ignore[call-arg]
+    return Config(**defaults)
 
 
 @pytest.fixture
