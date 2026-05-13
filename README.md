@@ -1,12 +1,12 @@
 # mail2pay
 
-Serverless function that receives inbound email webhooks from [Resend](https://resend.com), extracts payment details from attached PDF invoices via OpenRouter, generates a Belgian EPC QR code, and replies to the sender with the QR code attached.
+Serverless function that receives inbound email webhooks from [Resend](https://resend.com), extracts payment details from attached PDF invoices via Mistral AI, generates a Belgian EPC QR code, and replies to the sender with the QR code attached.
 
 ## How it works
 
 1. Resend delivers an inbound email event (JSON) to the function endpoint.
 2. The function picks the first PDF attachment and extracts its text with `pypdf`.
-3. OpenRouter (`mistralai/mistral-small-2603` by default) identifies the amount, IBAN, and communication reference using structured outputs.
+3. Mistral AI (`mistral-small-latest` by default) identifies the amount, IBAN, and communication reference using structured outputs.
 4. A SEPA Credit Transfer (EPC) QR code is generated with `segno`.
 5. The QR code PNG is emailed back to the original sender via Resend.
 
@@ -15,12 +15,11 @@ Serverless function that receives inbound email webhooks from [Resend](https://r
 | Variable | Required | Description |
 |---|---|---|
 | `RESEND_API_KEY` | ✅ | Resend API key |
-| `OPENROUTER_API_KEY` | ✅ | OpenRouter API key (get one at openrouter.ai) |
+| `MISTRAL_API_KEY` | ✅ | Mistral AI API key — console.mistral.ai |
 | `COMPANY_NAME` | ✅ | Beneficiary name embedded in the QR code |
 | `FROM_ADDRESS` | ✅ | Reply-from address (must be verified in Resend) |
 | `RESEND_WEBHOOK_SECRET` | ✅ | Resend webhook signing secret (found in Resend dashboard → Webhooks) |
-| `OPENROUTER_BASE_URL` | ✗ | Override base URL (default: `https://openrouter.ai/api/v1`) |
-| `OPENROUTER_MODEL` | ✗ | Model slug (default: `mistralai/mistral-small-2603`) |
+| `LLM_MODEL` | ✗ | Model slug (default: `mistral-small-latest`) |
 
 Copy `.env.example` to `.env` and fill in the values:
 
@@ -70,7 +69,7 @@ handler.py          # Scaleway entry point
 mail2pay/
   config.py         # Pydantic Settings (env-based)
   models.py         # PaymentDetails with validators
-  llm.py            # OpenAI Extractor
+  llm.py            # Mistral Extractor
   pdf.py            # PDF text extraction
   qr.py             # EPC QR code generator
   mailer.py         # Resend reply sender
