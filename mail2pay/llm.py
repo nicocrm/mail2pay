@@ -1,11 +1,10 @@
+import logging
 from typing import Optional
 
 from openai import OpenAI
 
 from .config import Config
 from .models import PaymentDetails
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +13,11 @@ _MAX_TEXT_CHARS = 10_000
 
 class Extractor:
     def __init__(self, cfg: Config, client: Optional[OpenAI] = None):
-        self._model = cfg.openai_model
-        self._client = client or OpenAI(api_key=cfg.openai_api_key)
+        self._model = cfg.openrouter_model
+        self._client = client or OpenAI(
+            api_key=cfg.openrouter_api_key,
+            base_url=cfg.openrouter_base_url,
+        )
 
     def extract(self, raw_text: str) -> PaymentDetails:
         if len(raw_text) > _MAX_TEXT_CHARS:
@@ -25,9 +27,10 @@ class Extractor:
                 _MAX_TEXT_CHARS,
             )
             raw_text = raw_text[:_MAX_TEXT_CHARS]
-        response = self._client.responses.parse(
+
+        response = self._client.chat.completions.parse(
             model=self._model,
-            input=[
+            messages=[
                 {"role": "system", "content": "Precise invoice data extractor."},
                 {
                     "role": "user",
@@ -37,11 +40,11 @@ class Extractor:
                     ),
                 },
             ],
-            text_format=PaymentDetails,
+            response_format=PaymentDetails,
         )
-        result = response.output_parsed
-        if result is None:
+        parsed = response.choices[0].message.parsed
+        if parsed is None:
             raise ValueError(
                 "LLM returned no structured output (refusal or content filter)"
             )
-        return result
+        return parsed
