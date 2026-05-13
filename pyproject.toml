@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "mistralai>=2.4.5",
     "openai>=2.36.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.14.1",
