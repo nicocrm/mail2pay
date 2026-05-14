@@ -34,6 +34,7 @@ def test_mock_extractor_passes_correct_roles(mock_extractor):
     roles = [m["role"] for m in messages]
     assert roles == ["system", "user"]
     assert "invoice text here" in messages[1]["content"]
+    assert "beneficiary" in messages[1]["content"]
 
 
 def test_mock_extractor_uses_configured_model(mock_extractor, cfg):
