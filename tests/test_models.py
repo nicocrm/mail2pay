@@ -6,8 +6,46 @@ from mail2pay.models import PaymentDetails
 
 
 # ---------------------------------------------------------------------------
-# amount
+# beneficiary_name
 # ---------------------------------------------------------------------------
+
+def test_beneficiary_name_valid():
+    p = PaymentDetails(beneficiary_name="Acme BV", amount="10.00", iban="BE68539007547034", communication="ref")
+    assert p.beneficiary_name == "Acme BV"
+
+
+def test_beneficiary_name_stripped():
+    p = PaymentDetails(beneficiary_name="  Acme BV  ", amount="10.00", iban="BE68539007547034", communication="ref")
+    assert p.beneficiary_name == "Acme BV"
+
+
+def test_beneficiary_name_newlines_replaced():
+    p = PaymentDetails(beneficiary_name="Acme\nBV", amount="10.00", iban="BE68539007547034", communication="ref")
+    assert "\n" not in p.beneficiary_name
+    assert p.beneficiary_name == "Acme BV"
+
+
+def test_beneficiary_name_carriage_return_replaced():
+    p = PaymentDetails(beneficiary_name="Acme\rBV", amount="10.00", iban="BE68539007547034", communication="ref")
+    assert "\r" not in p.beneficiary_name
+
+
+def test_beneficiary_name_truncated_at_70():
+    long_name = "A" * 100
+    p = PaymentDetails(beneficiary_name=long_name, amount="10.00", iban="BE68539007547034", communication="ref")
+    assert len(p.beneficiary_name) == 70
+    assert p.beneficiary_name == "A" * 70
+
+
+def test_beneficiary_name_empty_rejected():
+    with pytest.raises(ValidationError, match="empty"):
+        PaymentDetails(beneficiary_name="", amount="10.00", iban="BE68539007547034", communication="ref")
+
+
+def test_beneficiary_name_whitespace_only_rejected():
+    with pytest.raises(ValidationError, match="empty"):
+        PaymentDetails(beneficiary_name="   ", amount="10.00", iban="BE68539007547034", communication="ref")
+
 
 def test_amount_valid():
     p = PaymentDetails(beneficiary_name="Acme BV", amount="50", iban="BE68539007547034", communication="ref")

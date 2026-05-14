@@ -8,6 +8,14 @@ class PaymentDetails(BaseModel):
     iban: str = Field(description="Belgian IBAN, no spaces")
     communication: str = Field(description="Structured or free-form payment reference")
 
+    @field_validator("beneficiary_name", mode="before")
+    @classmethod
+    def validate_beneficiary_name(cls, v: str) -> str:
+        cleaned = str(v).replace("\n", " ").replace("\r", " ").strip()
+        if not cleaned:
+            raise ValueError("Beneficiary name cannot be empty")
+        return cleaned[:70]
+
     @field_validator("amount", mode="before")
     @classmethod
     def validate_amount(cls, v: str) -> str:
