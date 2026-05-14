@@ -22,12 +22,13 @@ def _make_pdf_bytes() -> bytes:
     return buf.getvalue()
 
 
-def _make_event(from_addr: str = "sender@example.com") -> dict:
+def _make_event(from_addr: str = "sender@example.com", to_addr: str = "noreply@test.com") -> dict:
     body = {
         "type": "email.received",
         "data": {
             "email_id": "evt_1",
             "from": from_addr,
+            "to": [to_addr],
             "attachments": [
                 {
                     "id": "att_1",
@@ -160,6 +161,7 @@ def test_handler_no_attachments_returns_ok(monkeypatch):
                 "data": {
                     "email_id": "evt_2",
                     "from": "a@b.com",
+                    "to": ["f@f.com"],
                     "attachments": [],
                 },
             })
@@ -208,6 +210,7 @@ def test_handler_wrong_event_type_returns_ok(monkeypatch):
                 "data": {
                     "email_id": "evt_3",
                     "from": "sender@example.com",
+                    "to": ["f@f.com"],
                     "attachments": [],
                 },
             })
@@ -233,7 +236,7 @@ def test_handler_attachment_download_failure_returns_500(monkeypatch):
          patch("resend.Emails.Receiving.Attachments.get", side_effect=httpx.ConnectError("timeout")), \
          patch("handler.verify_webhook", return_value=True):
         import handler
-        result = handler.handle(_make_event(), context=None)
+        result = handler.handle(_make_event(to_addr="f@f.com"), context=None)
 
     assert result["statusCode"] == 500
     resend_mock.assert_not_called()
@@ -252,7 +255,7 @@ def test_handler_invalid_signature_returns_ok(monkeypatch):
     with patch("resend.Emails.send", resend_mock), \
          patch("handler.verify_webhook", return_value=False):
         import handler
-        event = {"body": json.dumps({"type": "email.received", "data": {"from": "attacker@evil.com", "email_id": "x", "attachments": []}})}
+        event = {"body": json.dumps({"type": "email.received", "data": {"from": "attacker@evil.com", "to": ["f@f.com"], "email_id": "x", "attachments": []}})}
         result = handler.handle(event, context=None)
 
     assert result["statusCode"] == 200

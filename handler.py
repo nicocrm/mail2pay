@@ -69,6 +69,15 @@ def handle(event, context):
     data = webhook.data
     from_addr = str(data.from_)
 
+    # Verify email was addressed to our inbox
+    if not data.to or _cfg.from_address.lower() not in [addr.lower() for addr in data.to]:
+        logger.info(
+            "Email not addressed to configured inbox (from=%s, to=%s) – ignoring.",
+            from_addr,
+            data.to,
+        )
+        return {"statusCode": 200, "body": "ok"}
+
     if not data.attachments:
         logger.info("No attachments – ignoring.")
         return {"statusCode": 200, "body": "ok"}
