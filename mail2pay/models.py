@@ -3,6 +3,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class PaymentDetails(BaseModel):
+    beneficiary_name: str = Field(description="Name of the payment beneficiary / creditor as it appears on the invoice")
     amount: str = Field(description='Total amount, e.g. "50.00", no currency symbol')
     iban: str = Field(description="Belgian IBAN, no spaces")
     communication: str = Field(description="Structured or free-form payment reference")

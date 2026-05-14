@@ -38,7 +38,7 @@ def _bootstrap() -> None:
     except Exception:
         logger.exception(
             "Fatal: failed to load Config – ensure RESEND_API_KEY, MISTRAL_API_KEY, "
-            "COMPANY_NAME, FROM_ADDRESS, and RESEND_WEBHOOK_SECRET are set."
+            "FROM_ADDRESS, and RESEND_WEBHOOK_SECRET are set."
         )
         raise
 
@@ -101,7 +101,7 @@ def handle(event, context):
         payment = _extractor.extract(raw_text)
         logger.info("Payment details: amount=%s iban=%s", payment.amount, payment.iban)
 
-        qr_b64 = generate_qr_base64(payment, _cfg.company_name)
+        qr_b64 = generate_qr_base64(payment)
         logger.info("QR code generated (%d bytes base64).", len(qr_b64))
 
         _mailer.send_reply(from_addr, qr_b64)

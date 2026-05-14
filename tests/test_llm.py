@@ -13,7 +13,7 @@ from mail2pay.models import PaymentDetails
 
 def test_mock_extractor_calls_chat_completions_parse(mock_extractor):
     """Verify the correct API call shape."""
-    expected = PaymentDetails(amount="50.00", iban="BE68539007547034", communication="INV-001")
+    expected = PaymentDetails(beneficiary_name="Acme BV", amount="50.00", iban="BE68539007547034", communication="INV-001")
     mock_extractor._mock_client.chat.parse.return_value.choices[0].message.parsed = expected
 
     result = mock_extractor.extract("some invoice text")
@@ -25,7 +25,7 @@ def test_mock_extractor_calls_chat_completions_parse(mock_extractor):
 
 def test_mock_extractor_passes_correct_roles(mock_extractor):
     mock_extractor._mock_client.chat.parse.return_value.choices[0].message.parsed = PaymentDetails(
-        amount="10.00", iban="BE68539007547034", communication="ref"
+        beneficiary_name="Acme BV", amount="10.00", iban="BE68539007547034", communication="ref"
     )
     mock_extractor.extract("invoice text here")
 
@@ -38,7 +38,7 @@ def test_mock_extractor_passes_correct_roles(mock_extractor):
 
 def test_mock_extractor_uses_configured_model(mock_extractor, cfg):
     mock_extractor._mock_client.chat.parse.return_value.choices[0].message.parsed = PaymentDetails(
-        amount="1.00", iban="BE68539007547034", communication="x"
+        beneficiary_name="Acme BV", amount="1.00", iban="BE68539007547034", communication="x"
     )
     mock_extractor.extract("t")
 
@@ -48,7 +48,7 @@ def test_mock_extractor_uses_configured_model(mock_extractor, cfg):
 
 def test_mock_extractor_truncates_long_text(mock_extractor):
     mock_extractor._mock_client.chat.parse.return_value.choices[0].message.parsed = PaymentDetails(
-        amount="1.00", iban="BE68539007547034", communication="x"
+        beneficiary_name="Acme BV", amount="1.00", iban="BE68539007547034", communication="x"
     )
     mock_extractor.extract("Z" * 20_000)
 
@@ -75,3 +75,4 @@ def test_real_extractor_returns_plausible_result(real_extractor):
     assert len(result.iban) == 16, f"IBAN wrong length: {result.iban}"
     assert Decimal(result.amount) > 0, f"Non-positive amount: {result.amount}"
     assert result.communication, "Empty communication"
+    assert result.beneficiary_name, "Empty beneficiary_name"

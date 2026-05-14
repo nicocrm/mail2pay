@@ -14,7 +14,7 @@ _MAX_TEXT_CHARS = 10_000
 class Extractor:
     _SYSTEM_PROMPT = (
         "You extract structured payment data from invoice text. "
-        "Return exactly three fields (amount, Belgian IBAN, communication) "
+        "Return exactly four fields (beneficiary name, amount, Belgian IBAN, communication) "
         "in the required JSON schema. Do not include any other text."
     )
 
@@ -38,7 +38,7 @@ class Extractor:
                 {
                     "role": "user",
                     "content": (
-                        "Extract amount, Belgian IBAN, and communication.\n\n"
+                        "Extract the beneficiary name, amount, Belgian IBAN, and communication.\n\n"
                         f"Invoice:\n{raw_text}"
                     ),
                 },
