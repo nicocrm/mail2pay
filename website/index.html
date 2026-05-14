@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mail2pay — email an invoice, get a QR code back</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>mail2pay</h1>
+        <p class="tagline">
+          Email a PDF invoice. Get a Belgian EPC payment QR code back in your
+          inbox. Scan with your bank app to pay.
+        </p>
+      </header>
+
+      <section class="auth">
+        <!-- Signed-out state: sign-up / sign-in buttons -->
+        <div id="signed-out" hidden>
+          <button type="button" id="sign-up-btn" class="primary">
+            Sign up
+          </button>
+          <button type="button" id="sign-in-btn" class="secondary">
+            Sign in
+          </button>
+        </div>
+
+        <!-- Signed-in state: account menu + confirmation -->
+        <div id="signed-in" hidden>
+          <p class="confirm">
+            You're registered. Forward invoices to the mail2pay inbound address
+            to get a QR code reply.
+          </p>
+          <div id="user-button"></div>
+        </div>
+
+        <!-- While Clerk is loading -->
+        <div id="loading">
+          <p>Loading…</p>
+        </div>
+
+        <!-- Mount points for Clerk modals -->
+        <div id="clerk-sign-up"></div>
+        <div id="clerk-sign-in"></div>
+      </section>
+
+      <section class="how">
+        <h2>How it works</h2>
+        <ol>
+          <li>Sign up with your email address.</li>
+          <li>Forward a PDF invoice to the mail2pay inbox.</li>
+          <li>We extract the payee, amount, and IBAN using AI.</li>
+          <li>You receive a reply with a scannable EPC QR code.</li>
+        </ol>
+      </section>
+    </main>
+
+    <script src="config.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

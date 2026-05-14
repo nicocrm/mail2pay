@@ -3,6 +3,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from mail2pay.clerk import ClerkLookupError, is_registered_user
 from mail2pay.download import PDFTooLargeError, get_pdf_attachment
 from mail2pay.models import InboundWebhook
 from mail2pay.pdf import extract_pdf_text
@@ -68,6 +69,25 @@ def handle(event, context):
 
     data = webhook.data
     from_addr = str(data.from_)
+
+    # --- Sender allowlist: Clerk-registered users only ---
+    try:
+        allowed = is_registered_user(from_addr, _cfg.clerk_secret_key)
+    except ClerkLookupError:
+        logger.exception(
+            "Clerk lookup failed for email_id=%s – retryable, returning 500",
+            data.email_id,
+        )
+        return {"statusCode": 500, "body": "error"}
+
+    if not allowed:
+        logger.info(
+            "Gating drop: sender=%s reason=%s email_id=%s",
+            from_addr,
+            "not registered",
+            data.email_id,
+        )
+        return {"statusCode": 200, "body": "ok"}
 
     if not data.attachments:
         logger.info("No attachments – ignoring.")

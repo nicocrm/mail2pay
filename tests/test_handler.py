@@ -80,6 +80,7 @@ def _run_handler(monkeypatch, payment: PaymentDetails, env: dict | None = None):
         "MISTRAL_API_KEY": "test-mistral",
         "FROM_ADDRESS": "noreply@test.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
+        "CLERK_SECRET_KEY": "sk_test_clerk",
     }
     for k, v in {**base_env, **env}.items():
         monkeypatch.setenv(k, v)
@@ -100,7 +101,8 @@ def _run_handler(monkeypatch, payment: PaymentDetails, env: dict | None = None):
     with patch("resend.Emails.send", resend_send_mock), \
          patch("resend.Emails.Receiving.Attachments.get", attachments_get_mock), \
          patch("mail2pay.download._download", return_value=_make_pdf_bytes()), \
-         patch("handler.verify_webhook", return_value=True):
+         patch("handler.verify_webhook", return_value=True), \
+         patch("handler.is_registered_user", return_value=True):
         import handler
         result = handler.handle(_make_event(), context=None)
 
@@ -149,10 +151,12 @@ def test_handler_no_attachments_returns_ok(monkeypatch):
         "RESEND_API_KEY": "r", "MISTRAL_API_KEY": "test-mistral",
         "FROM_ADDRESS": "f@f.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
+        "CLERK_SECRET_KEY": "sk_test_clerk",
     }.items():
         monkeypatch.setenv(k, v)
 
-    with patch("handler.verify_webhook", return_value=True):
+    with patch("handler.verify_webhook", return_value=True), \
+         patch("handler.is_registered_user", return_value=True):
         import handler
         event = {
             "body": json.dumps({
@@ -174,12 +178,14 @@ def test_handler_validation_error_returns_ok(monkeypatch):
         "RESEND_API_KEY": "r", "MISTRAL_API_KEY": "test-mistral",
         "FROM_ADDRESS": "f@f.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
+        "CLERK_SECRET_KEY": "sk_test_clerk",
     }.items():
         monkeypatch.setenv(k, v)
 
     resend_mock = MagicMock()
     with patch("resend.Emails.send", resend_mock), \
-         patch("handler.verify_webhook", return_value=True):
+         patch("handler.verify_webhook", return_value=True), \
+         patch("handler.is_registered_user", return_value=True):
         import handler
         # Missing required "data" field → ValidationError
         event = {"body": json.dumps({"type": "email.received"})}
@@ -195,12 +201,15 @@ def test_handler_wrong_event_type_returns_ok(monkeypatch):
         "RESEND_API_KEY": "r", "MISTRAL_API_KEY": "test-mistral",
         "FROM_ADDRESS": "f@f.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
+        "CLERK_SECRET_KEY": "sk_test_clerk",
     }.items():
         monkeypatch.setenv(k, v)
 
     resend_mock = MagicMock()
+    clerk_mock = MagicMock(return_value=True)
     with patch("resend.Emails.send", resend_mock), \
-         patch("handler.verify_webhook", return_value=True):
+         patch("handler.verify_webhook", return_value=True), \
+         patch("handler.is_registered_user", clerk_mock):
         import handler
         event = {
             "body": json.dumps({
@@ -216,6 +225,8 @@ def test_handler_wrong_event_type_returns_ok(monkeypatch):
 
     assert result["statusCode"] == 200
     resend_mock.assert_not_called()
+    # Gate must NOT run before event-type check
+    clerk_mock.assert_not_called()
 
 
 def test_handler_attachment_download_failure_returns_500(monkeypatch):
@@ -224,6 +235,7 @@ def test_handler_attachment_download_failure_returns_500(monkeypatch):
         "RESEND_API_KEY": "r", "MISTRAL_API_KEY": "test-mistral",
         "FROM_ADDRESS": "f@f.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
+        "CLERK_SECRET_KEY": "sk_test_clerk",
     }.items():
         monkeypatch.setenv(k, v)
 
@@ -231,7 +243,8 @@ def test_handler_attachment_download_failure_returns_500(monkeypatch):
     resend_mock = MagicMock()
     with patch("resend.Emails.send", resend_mock), \
          patch("resend.Emails.Receiving.Attachments.get", side_effect=httpx.ConnectError("timeout")), \
-         patch("handler.verify_webhook", return_value=True):
+         patch("handler.verify_webhook", return_value=True), \
+         patch("handler.is_registered_user", return_value=True):
         import handler
         result = handler.handle(_make_event(), context=None)
 
@@ -245,15 +258,95 @@ def test_handler_invalid_signature_returns_ok(monkeypatch):
         "RESEND_API_KEY": "r", "MISTRAL_API_KEY": "test-mistral",
         "FROM_ADDRESS": "f@f.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
+        "CLERK_SECRET_KEY": "sk_test_clerk",
     }.items():
         monkeypatch.setenv(k, v)
 
     resend_mock = MagicMock()
+    clerk_mock = MagicMock(return_value=True)
     with patch("resend.Emails.send", resend_mock), \
-         patch("handler.verify_webhook", return_value=False):
+         patch("handler.verify_webhook", return_value=False), \
+         patch("handler.is_registered_user", clerk_mock):
         import handler
         event = {"body": json.dumps({"type": "email.received", "data": {"from": "attacker@evil.com", "email_id": "x", "attachments": []}})}
         result = handler.handle(event, context=None)
 
     assert result["statusCode"] == 200
     resend_mock.assert_not_called()
+    # Gate must NOT run before signature verification
+    clerk_mock.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests – gating (U5)
+# ---------------------------------------------------------------------------
+
+def test_handler_unregistered_sender_dropped_silently(monkeypatch, caplog):
+    """AE1, AE3: unregistered sender → 200, no PDF fetch, no Mistral, no Resend, log line emitted."""
+    for k, v in {
+        "RESEND_API_KEY": "test-resend", "MISTRAL_API_KEY": "test-mistral",
+        "FROM_ADDRESS": "noreply@test.com",
+        "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3VldA==",
+        "CLERK_SECRET_KEY": "sk_test_clerk",
+    }.items():
+        monkeypatch.setenv(k, v)
+
+    resend_send_mock = MagicMock()
+    attachments_get_mock = MagicMock()
+    download_mock = MagicMock()
+
+    import logging
+    caplog.set_level(logging.INFO, logger="handler")
+
+    # Stub the Extractor class so a missing real key doesn't matter
+    import mail2pay.llm as llm_mod
+    from mail2pay.models import PaymentDetails
+    payment = PaymentDetails(beneficiary_name="X", amount="1.00", iban="BE68539007547034", communication="C")
+    monkeypatch.setattr(llm_mod, "Extractor", _stub_extractor_class(payment))
+
+    with patch("resend.Emails.send", resend_send_mock), \
+         patch("resend.Emails.Receiving.Attachments.get", attachments_get_mock), \
+         patch("mail2pay.download._download", download_mock), \
+         patch("handler.verify_webhook", return_value=True), \
+         patch("handler.is_registered_user", return_value=False):
+        import handler
+        result = handler.handle(_make_event(from_addr="stranger@example.com"), context=None)
+
+    assert result == {"statusCode": 200, "body": "ok"}
+    resend_send_mock.assert_not_called()
+    attachments_get_mock.assert_not_called()
+    download_mock.assert_not_called()
+    assert "Gating drop" in caplog.text
+    assert "stranger@example.com" in caplog.text
+    assert "not registered" in caplog.text
+
+
+def test_handler_clerk_lookup_failure_returns_500(monkeypatch):
+    """Transient Clerk failure → 500 so Resend retries. No downstream calls."""
+    for k, v in {
+        "RESEND_API_KEY": "test-resend", "MISTRAL_API_KEY": "test-mistral",
+        "FROM_ADDRESS": "noreply@test.com",
+        "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
+        "CLERK_SECRET_KEY": "sk_test_clerk",
+    }.items():
+        monkeypatch.setenv(k, v)
+
+    from mail2pay.clerk import ClerkLookupError
+    resend_send_mock = MagicMock()
+    attachments_get_mock = MagicMock()
+
+    import mail2pay.llm as llm_mod
+    from mail2pay.models import PaymentDetails
+    payment = PaymentDetails(beneficiary_name="X", amount="1.00", iban="BE68539007547034", communication="C")
+    monkeypatch.setattr(llm_mod, "Extractor", _stub_extractor_class(payment))
+
+    with patch("resend.Emails.send", resend_send_mock), \
+         patch("resend.Emails.Receiving.Attachments.get", attachments_get_mock), \
+         patch("handler.verify_webhook", return_value=True), \
+         patch("handler.is_registered_user", side_effect=ClerkLookupError("upstream 503")):
+        import handler
+        result = handler.handle(_make_event(), context=None)
+
+    assert result == {"statusCode": 500, "body": "error"}
+    resend_send_mock.assert_not_called()
+    attachments_get_mock.assert_not_called()

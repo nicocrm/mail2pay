@@ -1,0 +1,102 @@
+:root {
+  --bg: #0f172a;
+  --fg: #f1f5f9;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --accent-fg: #0f172a;
+  --card: #1e293b;
+  --radius: 10px;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  line-height: 1.5;
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 4rem;
+}
+
+header h1 {
+  font-size: 2.5rem;
+  margin: 0 0 0.25rem;
+  letter-spacing: -0.02em;
+}
+
+.tagline {
+  color: var(--muted);
+  font-size: 1.1rem;
+  margin: 0 0 2rem;
+}
+
+.auth {
+  background: var(--card);
+  padding: 1.5rem;
+  border-radius: var(--radius);
+  margin-bottom: 2rem;
+}
+
+.auth button {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.7rem 1.2rem;
+  border-radius: var(--radius);
+  border: 0;
+  cursor: pointer;
+  margin-right: 0.5rem;
+}
+
+.auth button.primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.auth button.secondary {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--muted);
+}
+
+.auth button:hover {
+  filter: brightness(1.1);
+}
+
+.confirm {
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+
+#user-button {
+  display: inline-block;
+}
+
+.how h2 {
+  font-size: 1.25rem;
+  margin: 0 0 0.75rem;
+}
+
+.how ol {
+  color: var(--muted);
+  padding-left: 1.25rem;
+}
+
+.how li {
+  margin-bottom: 0.35rem;
+}
+
+#loading p {
+  color: var(--muted);
+  margin: 0;
+}

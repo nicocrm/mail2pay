@@ -18,6 +18,7 @@ Serverless function that receives inbound email webhooks from [Resend](https://r
 | `MISTRAL_API_KEY` | ✅ | Mistral AI API key — console.mistral.ai |
 | `FROM_ADDRESS` | ✅ | Reply-from address (must be verified in Resend) |
 | `RESEND_WEBHOOK_SECRET` | ✅ | Resend webhook signing secret (found in Resend dashboard → Webhooks) |
+| `CLERK_SECRET_KEY` | ✅ | Clerk Backend API secret key — dashboard.clerk.com → API Keys. Used to verify that inbound email senders are registered users. |
 | `LLM_MODEL` | — | Mistral model to use (default: `mistral-small-latest`) |
 
 Copy `.env.example` to `.env` and fill in the values:
