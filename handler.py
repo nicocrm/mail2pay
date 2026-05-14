@@ -3,6 +3,10 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from mail2pay.download import PDFTooLargeError, get_pdf_attachment
+from mail2pay.models import InboundWebhook
+from mail2pay.pdf import extract_pdf_text
+from mail2pay.qr import generate_qr_base64
 from mail2pay.webhook import verify_webhook
 
 logging.basicConfig(level=logging.INFO)
@@ -52,8 +56,6 @@ def handle(event, context):
 
     body = event.get("body") or "{}"
 
-    from mail2pay.models import InboundWebhook
-
     try:
         webhook = InboundWebhook.model_validate_json(body)
     except ValidationError as exc:
@@ -71,13 +73,15 @@ def handle(event, context):
         logger.info("No attachments – ignoring.")
         return {"statusCode": 200, "body": "ok"}
 
-    from mail2pay.download import get_pdf_attachment
-    from mail2pay.pdf import extract_pdf_text
-    from mail2pay.qr import generate_qr_base64
-
     # --- Transport / Resend API call (retryable → 500) ---
     try:
         pdf_bytes = get_pdf_attachment(data.email_id, data.attachments)
+    except PDFTooLargeError:
+        logger.warning(
+            "PDF attachment too large for email_id=%s – non-retryable, returning 200",
+            data.email_id,
+        )
+        return {"statusCode": 200, "body": "ok"}
     except Exception:
         logger.exception(
             "Failed to fetch PDF attachment for email_id=%s – retryable, returning 500",

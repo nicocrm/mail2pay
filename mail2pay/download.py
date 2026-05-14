@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 _MAX_PDF_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
+class PDFTooLargeError(Exception):
+    """Raised when a PDF attachment exceeds the size cap.
+
+    This is non-retryable: the payload will not shrink on retry.
+    """
+
+
+
 def pick_pdf_attachment(
     attachments: list[WebhookAttachment],
 ) -> Optional[WebhookAttachment]:
@@ -40,7 +48,7 @@ def _download(url: str) -> bytes:
         for chunk in resp.iter_bytes():
             total += len(chunk)
             if total > _MAX_PDF_BYTES:
-                raise ValueError(
+                raise PDFTooLargeError(
                     f"PDF download exceeded size cap of {_MAX_PDF_BYTES} bytes"
                 )
             chunks.append(chunk)
