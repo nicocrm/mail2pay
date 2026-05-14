@@ -1,5 +1,5 @@
 from decimal import Decimal, InvalidOperation
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class PaymentDetails(BaseModel):
@@ -32,3 +32,27 @@ class PaymentDetails(BaseModel):
     @classmethod
     def validate_communication(cls, v: str) -> str:
         return str(v).strip()[:140]
+
+
+class WebhookAttachment(BaseModel):
+    id: str
+    filename: str | None = None
+    content_type: str | None = None
+    content_disposition: str | None = None
+    content_id: str | None = None
+
+
+class ReceivedEmailData(BaseModel):
+    email_id: str
+    from_: EmailStr = Field(alias="from")
+    to: list[str] = Field(default_factory=list)
+    subject: str | None = None
+    attachments: list[WebhookAttachment] = Field(default_factory=list)
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+
+class InboundWebhook(BaseModel):
+    type: str
+    created_at: str | None = None
+    data: ReceivedEmailData
+    model_config = ConfigDict(extra="ignore")

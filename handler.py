@@ -1,7 +1,12 @@
-import json
 import logging
 from typing import Any
 
+from pydantic import ValidationError
+
+from mail2pay.download import PDFTooLargeError, get_pdf_attachment
+from mail2pay.models import InboundWebhook
+from mail2pay.pdf import extract_pdf_text
+from mail2pay.qr import generate_qr_base64
 from mail2pay.webhook import verify_webhook
 
 logging.basicConfig(level=logging.INFO)
@@ -49,34 +54,48 @@ def handle(event, context):
         logger.warning("Webhook signature verification failed – ignoring request.")
         return {"statusCode": 200, "body": "ok"}
 
+    body = event.get("body") or "{}"
+
     try:
-        body = json.loads(event.get("body") or "{}")
-    except (json.JSONDecodeError, AttributeError) as exc:
-        logger.error("Failed to parse request body: %s", exc)
-        return {"statusCode": 200, "body": "bad request"}
-
-    from_addr = body.get("from")
-    attachments = body.get("attachments") or []
-
-    if not from_addr:
-        logger.info("No From address – ignoring.")
+        webhook = InboundWebhook.model_validate_json(body)
+    except ValidationError as exc:
+        logger.error("Webhook payload validation error: %s", exc)
         return {"statusCode": 200, "body": "ok"}
 
-    if not attachments:
+    if webhook.type != "email.received":
+        logger.info("Ignoring event type %r", webhook.type)
+        return {"statusCode": 200, "body": "ok"}
+
+    data = webhook.data
+    from_addr = str(data.from_)
+
+    if not data.attachments:
         logger.info("No attachments – ignoring.")
         return {"statusCode": 200, "body": "ok"}
 
+    # --- Transport / Resend API call (retryable → 500) ---
     try:
-        from mail2pay.pdf import extract_pdf_text, pick_pdf_attachment
-        from mail2pay.qr import generate_qr_base64
+        pdf_bytes = get_pdf_attachment(data.email_id, data.attachments)
+    except PDFTooLargeError:
+        logger.warning(
+            "PDF attachment too large for email_id=%s – non-retryable, returning 200",
+            data.email_id,
+        )
+        return {"statusCode": 200, "body": "ok"}
+    except Exception:
+        logger.exception(
+            "Failed to fetch PDF attachment for email_id=%s – retryable, returning 500",
+            data.email_id,
+        )
+        return {"statusCode": 500, "body": "error"}
 
-        att = pick_pdf_attachment(attachments)
-        if att is None:
-            logger.info("No PDF attachment found – ignoring.")
-            return {"statusCode": 200, "body": "ok"}
+    if pdf_bytes is None:
+        logger.info("No PDF attachment found – ignoring.")
+        return {"statusCode": 200, "body": "ok"}
 
-        pdf_b64 = att.get("content") or ""
-        raw_text = extract_pdf_text(pdf_b64)
+    # --- Non-retryable processing steps (PDF parse, LLM, QR, send) ---
+    try:
+        raw_text = extract_pdf_text(pdf_bytes)
         logger.info("Extracted %d chars of text from PDF.", len(raw_text))
 
         payment = _extractor.extract(raw_text)
@@ -89,6 +108,6 @@ def handle(event, context):
         logger.debug("Reply sent to %s.", from_addr)  # PII – debug only
 
     except Exception:
-        logger.exception("mail2pay failure")
+        logger.exception("mail2pay processing failure")
 
     return {"statusCode": 200, "body": "ok"}
