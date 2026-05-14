@@ -32,3 +32,22 @@ class Mailer:
                 }
             ],
         })
+
+    def send_error_reply(self, to: str) -> None:
+        """Send a generic "we couldn't process your invoice" reply.
+
+        Intentionally does not expose error-type detail, extracted fields, or
+        any internal identifiers (R2). Exceptions from the underlying transport
+        propagate — the caller owns the log-and-swallow policy (R9).
+        """
+        resend.Emails.send({
+            "from": self._from,
+            "to": [to],
+            "subject": "We couldn't process your invoice",
+            "html": (
+                "<p>Thanks for your email. We received it but were unable to "
+                "generate a payment QR code from the attachment.</p>"
+                "<p>Please try again with a clearer invoice, or reply to this "
+                "email if you need help.</p>"
+            ),
+        })

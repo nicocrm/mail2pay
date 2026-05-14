@@ -4,6 +4,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from mail2pay.download import PDFTooLargeError, get_pdf_attachment
+from mail2pay.loop_guard import should_send_error_reply
 from mail2pay.models import InboundWebhook
 from mail2pay.pdf import extract_pdf_text
 from mail2pay.qr import generate_qr_base64
@@ -45,6 +46,25 @@ def _bootstrap() -> None:
     _cfg = cfg
     _extractor = Extractor(_cfg)
     _mailer = Mailer(_cfg)  # also sets resend.api_key
+
+
+def _notify_sender_of_failure(from_addr: str, email_id: str) -> None:
+    """Send a generic error-reply email unless loop-prevention rules suppress it.
+
+    Failures sending the error reply itself are logged and swallowed (R9) — we
+    do not try to email about an email failure, retry, or escalate to 500.
+    """
+    send, reason = should_send_error_reply(from_addr, _cfg.from_address)
+    if not send:
+        logger.info(
+            "Suppressing error reply email_id=%s reason=%s", email_id, reason
+        )
+        return
+
+    try:
+        _mailer.send_error_reply(from_addr)
+    except Exception:
+        logger.exception("Failed to send error reply email_id=%s", email_id)
 
 
 def handle(event, context):
@@ -90,6 +110,7 @@ def handle(event, context):
             "PDF attachment too large for email_id=%s – non-retryable, returning 200",
             data.email_id,
         )
+        _notify_sender_of_failure(from_addr, data.email_id)
         return {"statusCode": 200, "body": "ok"}
     except Exception:
         logger.exception(
@@ -118,5 +139,6 @@ def handle(event, context):
 
     except Exception:
         logger.exception("mail2pay processing failure")
+        _notify_sender_of_failure(from_addr, data.email_id)
 
     return {"statusCode": 200, "body": "ok"}
