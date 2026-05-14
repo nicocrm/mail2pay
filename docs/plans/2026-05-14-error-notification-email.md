@@ -1,7 +1,7 @@
 ---
 date: 2026-05-14
 topic: error-notification-email
-status: active
+status: completed
 origin: docs/brainstorms/2026-05-14-error-notification-email-requirements.md
 ---
 
