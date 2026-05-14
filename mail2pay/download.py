@@ -75,7 +75,11 @@ def get_pdf_attachment(
         email_id,
     )
     result = resend.Emails.Receiving.Attachments.get(email_id, att.id)
-    download_url: str = result["download_url"]
+    download_url = result.get("download_url")
+    if not download_url:
+        raise RuntimeError(
+            f"Resend attachment response missing 'download_url' for attachment id={att.id}"
+        )
 
     pdf_bytes = _download(download_url)
     logger.info(
