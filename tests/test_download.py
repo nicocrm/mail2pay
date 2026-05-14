@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mail2pay.download import (
+    PDFTooLargeError,
     _MAX_PDF_BYTES,
     _download,
     get_pdf_attachment,
@@ -118,5 +119,5 @@ def test_download_raises_on_size_overflow():
             pass
 
     with patch("httpx.stream", return_value=FakeResponse()):
-        with pytest.raises(ValueError, match="size cap"):
+        with pytest.raises(PDFTooLargeError, match="size cap"):
             _download("https://example.com/huge.pdf")
