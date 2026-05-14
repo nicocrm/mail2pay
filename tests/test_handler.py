@@ -257,3 +257,193 @@ def test_handler_invalid_signature_returns_ok(monkeypatch):
 
     assert result["statusCode"] == 200
     resend_mock.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests – non-retryable failures trigger sender notification
+# ---------------------------------------------------------------------------
+
+def _run_handler_with_mailer_stub(
+    monkeypatch,
+    *,
+    from_addr: str = "sender@example.com",
+    extractor_side_effect: Exception | None = None,
+    qr_side_effect: Exception | None = None,
+    pdf_side_effect: Exception | None = None,
+    send_reply_side_effect: Exception | None = None,
+    download_side_effect: Exception | None = None,
+    send_error_reply_side_effect: Exception | None = None,
+):
+    """Run handle() with the Mailer singleton replaced by a MagicMock.
+
+    Returns ``(result, mailer_mock)``. Failures are injected at whichever layer
+    the caller names, driving the non-retryable except branches in handler.
+    """
+    for k, v in {
+        "RESEND_API_KEY": "test-resend",
+        "MISTRAL_API_KEY": "test-mistral",
+        "FROM_ADDRESS": "noreply@test.com",
+        "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
+    }.items():
+        monkeypatch.setenv(k, v)
+
+    payment = PaymentDetails(
+        beneficiary_name="Acme BV",
+        amount="99.00",
+        iban="BE68539007547034",
+        communication="TEST",
+    )
+
+    class RaisingExtractor:
+        def __init__(self, cfg, client=None):
+            pass
+        def extract(self, raw_text: str) -> PaymentDetails:
+            if extractor_side_effect is not None:
+                raise extractor_side_effect
+            return payment
+
+    import mail2pay.llm as llm_mod
+    monkeypatch.setattr(llm_mod, "Extractor", RaisingExtractor)
+
+    # Replace the Mailer class with one that yields a mock instance so we can
+    # assert on send_reply / send_error_reply calls through the module cache.
+    mailer_instance = MagicMock()
+    if send_reply_side_effect is not None:
+        mailer_instance.send_reply.side_effect = send_reply_side_effect
+    if send_error_reply_side_effect is not None:
+        mailer_instance.send_error_reply.side_effect = send_error_reply_side_effect
+
+    import mail2pay.mailer as mailer_mod
+    class StubMailer:
+        def __init__(self, cfg):
+            pass
+        def __new__(cls, cfg):
+            return mailer_instance
+    monkeypatch.setattr(mailer_mod, "Mailer", StubMailer)
+
+    attachments_get_mock = MagicMock(
+        return_value={"download_url": "https://signed.example.com/invoice.pdf"}
+    )
+    if download_side_effect is not None:
+        attachments_get_mock.side_effect = download_side_effect
+
+    pdf_text_patcher = patch("handler.extract_pdf_text")
+    qr_patcher = patch("handler.generate_qr_base64")
+
+    with patch("resend.Emails.Receiving.Attachments.get", attachments_get_mock), \
+         patch("mail2pay.download._download", return_value=_make_pdf_bytes()), \
+         patch("handler.verify_webhook", return_value=True), \
+         pdf_text_patcher as pdf_text_mock, \
+         qr_patcher as qr_mock:
+
+        if pdf_side_effect is not None:
+            pdf_text_mock.side_effect = pdf_side_effect
+        else:
+            pdf_text_mock.return_value = "invoice text"
+
+        if qr_side_effect is not None:
+            qr_mock.side_effect = qr_side_effect
+        else:
+            qr_mock.return_value = "aGVsbG8="
+
+        import handler
+        result = handler.handle(_make_event(from_addr=from_addr), context=None)
+
+    return result, mailer_instance
+
+
+def test_extractor_failure_triggers_error_reply(monkeypatch):
+    """AE1: LLM extraction failure → 200, send_error_reply called, send_reply not."""
+    from pydantic import ValidationError
+    # Trigger a real ValidationError on PaymentDetails.
+    try:
+        PaymentDetails(beneficiary_name="x", amount="0", iban="BE68539007547034", communication="")
+    except ValidationError as exc:
+        validation_error = exc
+
+    result, mailer = _run_handler_with_mailer_stub(
+        monkeypatch, extractor_side_effect=validation_error
+    )
+    assert result["statusCode"] == 200
+    mailer.send_error_reply.assert_called_once_with("sender@example.com")
+    mailer.send_reply.assert_not_called()
+
+
+def test_pdf_too_large_triggers_error_reply(monkeypatch):
+    """AE2: PDFTooLargeError → 200, send_error_reply called once."""
+    from mail2pay.download import PDFTooLargeError
+    result, mailer = _run_handler_with_mailer_stub(
+        monkeypatch, download_side_effect=PDFTooLargeError("too big")
+    )
+    assert result["statusCode"] == 200
+    mailer.send_error_reply.assert_called_once_with("sender@example.com")
+    mailer.send_reply.assert_not_called()
+
+
+def test_qr_failure_triggers_error_reply(monkeypatch):
+    result, mailer = _run_handler_with_mailer_stub(
+        monkeypatch, qr_side_effect=RuntimeError("qr failed")
+    )
+    assert result["statusCode"] == 200
+    mailer.send_error_reply.assert_called_once_with("sender@example.com")
+
+
+def test_pdf_parse_failure_triggers_error_reply(monkeypatch):
+    result, mailer = _run_handler_with_mailer_stub(
+        monkeypatch, pdf_side_effect=RuntimeError("parse failed")
+    )
+    assert result["statusCode"] == 200
+    mailer.send_error_reply.assert_called_once_with("sender@example.com")
+
+
+def test_send_reply_failure_also_triggers_error_reply(monkeypatch):
+    """When the success reply raises inside the outer try, the error reply still fires."""
+    result, mailer = _run_handler_with_mailer_stub(
+        monkeypatch, send_reply_side_effect=RuntimeError("boom")
+    )
+    assert result["statusCode"] == 200
+    mailer.send_error_reply.assert_called_once_with("sender@example.com")
+
+
+def test_self_loop_suppresses_error_reply(monkeypatch):
+    """AE3: from == FROM_ADDRESS → no error reply, still 200."""
+    result, mailer = _run_handler_with_mailer_stub(
+        monkeypatch,
+        from_addr="noreply@test.com",  # matches FROM_ADDRESS
+        qr_side_effect=RuntimeError("qr failed"),
+    )
+    assert result["statusCode"] == 200
+    mailer.send_error_reply.assert_not_called()
+
+
+def test_no_reply_local_part_suppresses_error_reply(monkeypatch):
+    """AE5: from=no-reply@... → no error reply."""
+    result, mailer = _run_handler_with_mailer_stub(
+        monkeypatch,
+        from_addr="no-reply@acme.com",
+        qr_side_effect=RuntimeError("qr failed"),
+    )
+    assert result["statusCode"] == 200
+    mailer.send_error_reply.assert_not_called()
+
+
+def test_error_reply_send_failure_is_swallowed(monkeypatch):
+    """AE6: send_error_reply raises → handler still returns 200, no 500."""
+    result, mailer = _run_handler_with_mailer_stub(
+        monkeypatch,
+        qr_side_effect=RuntimeError("qr failed"),
+        send_error_reply_side_effect=RuntimeError("transport down"),
+    )
+    assert result["statusCode"] == 200
+    mailer.send_error_reply.assert_called_once_with("sender@example.com")
+
+
+def test_retryable_download_error_does_not_trigger_error_reply(monkeypatch):
+    """Download-transport failures remain retryable (500) — no error reply."""
+    import httpx
+    result, mailer = _run_handler_with_mailer_stub(
+        monkeypatch, download_side_effect=httpx.ConnectError("timeout")
+    )
+    assert result["statusCode"] == 500
+    mailer.send_error_reply.assert_not_called()
+    mailer.send_reply.assert_not_called()
