@@ -3,9 +3,18 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class PaymentDetails(BaseModel):
+    beneficiary_name: str = Field(description="Name of the payment beneficiary / creditor as it appears on the invoice")
     amount: str = Field(description='Total amount, e.g. "50.00", no currency symbol')
     iban: str = Field(description="Belgian IBAN, no spaces")
     communication: str = Field(description="Structured or free-form payment reference")
+
+    @field_validator("beneficiary_name", mode="before")
+    @classmethod
+    def validate_beneficiary_name(cls, v: str) -> str:
+        cleaned = str(v).replace("\n", " ").replace("\r", " ").strip()
+        if not cleaned:
+            raise ValueError("Beneficiary name cannot be empty")
+        return cleaned[:70]
 
     @field_validator("amount", mode="before")
     @classmethod

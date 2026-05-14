@@ -13,7 +13,6 @@ def _make_cfg(**overrides) -> Config:
     defaults = dict(
         RESEND_API_KEY="test-resend-key",
         MISTRAL_API_KEY="test-mistral-key",
-        COMPANY_NAME="Test Corp",
         FROM_ADDRESS="noreply@example.com",
         LLM_MODEL="mistral-small-latest",
         RESEND_WEBHOOK_SECRET="whsec_dGVzdHNlY3JldA==",

@@ -22,7 +22,7 @@ The function requires the following secure environment variables configured in t
 
 * `RESEND_API_KEY`: API key for sending outbound emails.
 * `OPENAI_API_KEY`: API key for accessing the OpenAI API.
-* `COMPANY_NAME`: The name of the beneficiary to be encoded in the QR code (e.g., "Jane Doe" or "Acme Corp").
+* `FROM_ADDRESS`: The sender address used for outbound reply emails.
 
 ## 4. Dependencies
 
@@ -45,7 +45,7 @@ The base64-encoded PDF from the Resend payload is decoded into bytes. `pypdf` re
 
 ### Step 3: LLM Data Extraction
 
-The raw text is sent to OpenAI's `gpt-5.4-mini` model. The prompt uses strict system instructions and the `json_object` response format to guarantee the return of a clean JSON object containing three exact keys: `amount`, `iban`, and `communication`.
+The raw text is sent to OpenAI's `gpt-5.4-mini` model. The prompt uses strict system instructions and the `json_object` response format to guarantee the return of a clean JSON object containing four exact keys: `beneficiary_name`, `amount`, `iban`, and `communication`. The `beneficiary_name` is the creditor name as it appears on the invoice.
 
 ### Step 4: EPC QR Code Generation
 
@@ -63,7 +63,6 @@ The application constructs a new email payload using the Resend SDK. It addresse
 import json
 import base64
 import io
-import os
 import resend
 from openai import OpenAI
 from pypdf import PdfReader
@@ -85,8 +84,9 @@ def extract_pdf_text(base64_pdf):
 def extract_details_via_llm(raw_text):
     """Passes raw text to OpenAI to extract structured payment data."""
     prompt = f"""
-    Extract the total amount, Belgian IBAN, and payment communication from this invoice.
+    Extract the beneficiary name, total amount, Belgian IBAN, and payment communication from this invoice.
     Return ONLY a JSON object with the keys: 
+    - 'beneficiary_name' (string, name of the creditor/payee as shown on the invoice)
     - 'amount' (string, e.g. "50.00", no currency symbols)
     - 'iban' (string without spaces)
     - 'communication' (string)
@@ -107,8 +107,8 @@ def extract_details_via_llm(raw_text):
 
 def generate_qr_base64(payment_data):
     """Generates an EPC-compliant QR code and returns it as a base64 string."""
-    name = os.environ.get("COMPANY_NAME", "Recipient Name") 
-    
+    name = payment_data['beneficiary_name']
+
     # Construct strict EPC string
     epc_data = (
         f"BCD\n"

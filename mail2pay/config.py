@@ -7,7 +7,6 @@ class Config(BaseSettings):
 
     resend_api_key: str = Field(alias="RESEND_API_KEY")
     mistral_api_key: str = Field(alias="MISTRAL_API_KEY")
-    company_name: str = Field(alias="COMPANY_NAME")
     from_address: str = Field(alias="FROM_ADDRESS")
     webhook_secret: str = Field(alias="RESEND_WEBHOOK_SECRET")
     llm_model: str = Field(default="mistral-small-latest", alias="LLM_MODEL")
