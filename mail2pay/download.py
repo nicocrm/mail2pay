@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import httpx
 import resend
@@ -25,7 +24,7 @@ class PDFTooLargeError(Exception):
 
 def pick_pdf_attachment(
     attachments: list[WebhookAttachment],
-) -> Optional[WebhookAttachment]:
+) -> WebhookAttachment | None:
     """Return the first attachment that looks like a PDF, or None."""
     for att in attachments:
         content_type = att.content_type or ""
@@ -58,7 +57,7 @@ def _download(url: str) -> bytes:
 def get_pdf_attachment(
     email_id: str,
     attachments: list[WebhookAttachment],
-) -> Optional[bytes]:
+) -> bytes | None:
     """Pick the first PDF attachment, fetch its signed URL, download and return bytes.
 
     Returns ``None`` when no PDF attachment is present.
