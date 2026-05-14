@@ -78,7 +78,6 @@ def _run_handler(monkeypatch, payment: PaymentDetails, env: dict | None = None):
     base_env = {
         "RESEND_API_KEY": "test-resend",
         "MISTRAL_API_KEY": "test-mistral",
-        "COMPANY_NAME": "Test Corp",
         "FROM_ADDRESS": "noreply@test.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
     }
@@ -113,26 +112,26 @@ def _run_handler(monkeypatch, payment: PaymentDetails, env: dict | None = None):
 # ---------------------------------------------------------------------------
 
 def test_handler_returns_200(monkeypatch):
-    payment = PaymentDetails(amount="99.00", iban="BE68539007547034", communication="TEST")
+    payment = PaymentDetails(beneficiary_name="Acme BV", amount="99.00", iban="BE68539007547034", communication="TEST")
     result, _ = _run_handler(monkeypatch, payment)
     assert result["statusCode"] == 200
 
 
 def test_handler_calls_resend_once(monkeypatch):
-    payment = PaymentDetails(amount="99.00", iban="BE68539007547034", communication="TEST")
+    payment = PaymentDetails(beneficiary_name="Acme BV", amount="99.00", iban="BE68539007547034", communication="TEST")
     _, resend_mock = _run_handler(monkeypatch, payment)
     resend_mock.assert_called_once()
 
 
 def test_handler_sends_to_correct_address(monkeypatch):
-    payment = PaymentDetails(amount="10.00", iban="BE68539007547034", communication="REF")
+    payment = PaymentDetails(beneficiary_name="Acme BV", amount="10.00", iban="BE68539007547034", communication="REF")
     _, resend_mock = _run_handler(monkeypatch, payment)
     call_args = resend_mock.call_args[0][0]
     assert call_args["to"] == ["sender@example.com"]
 
 
 def test_handler_attaches_png(monkeypatch):
-    payment = PaymentDetails(amount="25.50", iban="BE68539007547034", communication="X")
+    payment = PaymentDetails(beneficiary_name="Acme BV", amount="25.50", iban="BE68539007547034", communication="X")
     _, resend_mock = _run_handler(monkeypatch, payment)
     call_args = resend_mock.call_args[0][0]
     attachments = call_args.get("attachments", [])
@@ -148,7 +147,7 @@ def test_handler_attaches_png(monkeypatch):
 def test_handler_no_attachments_returns_ok(monkeypatch):
     for k, v in {
         "RESEND_API_KEY": "r", "MISTRAL_API_KEY": "test-mistral",
-        "COMPANY_NAME": "C", "FROM_ADDRESS": "f@f.com",
+        "FROM_ADDRESS": "f@f.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
     }.items():
         monkeypatch.setenv(k, v)
@@ -173,7 +172,7 @@ def test_handler_validation_error_returns_ok(monkeypatch):
     """Malformed body → 200, no Resend send call."""
     for k, v in {
         "RESEND_API_KEY": "r", "MISTRAL_API_KEY": "test-mistral",
-        "COMPANY_NAME": "C", "FROM_ADDRESS": "f@f.com",
+        "FROM_ADDRESS": "f@f.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
     }.items():
         monkeypatch.setenv(k, v)
@@ -194,7 +193,7 @@ def test_handler_wrong_event_type_returns_ok(monkeypatch):
     """type='email.sent' → 200, no Resend send call."""
     for k, v in {
         "RESEND_API_KEY": "r", "MISTRAL_API_KEY": "test-mistral",
-        "COMPANY_NAME": "C", "FROM_ADDRESS": "f@f.com",
+        "FROM_ADDRESS": "f@f.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
     }.items():
         monkeypatch.setenv(k, v)
@@ -223,7 +222,7 @@ def test_handler_attachment_download_failure_returns_500(monkeypatch):
     """Transport failure in get_pdf_attachment → 500 so Resend retries."""
     for k, v in {
         "RESEND_API_KEY": "r", "MISTRAL_API_KEY": "test-mistral",
-        "COMPANY_NAME": "C", "FROM_ADDRESS": "f@f.com",
+        "FROM_ADDRESS": "f@f.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
     }.items():
         monkeypatch.setenv(k, v)
@@ -244,7 +243,7 @@ def test_handler_invalid_signature_returns_ok(monkeypatch):
     """Requests with bad webhook signatures are dropped: 200 returned, Resend never called."""
     for k, v in {
         "RESEND_API_KEY": "r", "MISTRAL_API_KEY": "test-mistral",
-        "COMPANY_NAME": "C", "FROM_ADDRESS": "f@f.com",
+        "FROM_ADDRESS": "f@f.com",
         "RESEND_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA==",
     }.items():
         monkeypatch.setenv(k, v)

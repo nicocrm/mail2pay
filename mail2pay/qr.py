@@ -21,11 +21,11 @@ _EPC_TEMPLATE = "\n".join([
 ])
 
 
-def generate_qr_base64(payment: PaymentDetails, company_name: str) -> str:
+def generate_qr_base64(payment: PaymentDetails) -> str:
     """Generate an EPC QR code PNG and return it as a base64 string."""
     epc_data = _EPC_TEMPLATE.format(
         bic="",
-        name=company_name,
+        name=payment.beneficiary_name,
         iban=payment.iban,
         amount=payment.amount,
         communication=payment.communication,
