@@ -16,6 +16,7 @@ def _make_cfg(**overrides) -> Config:
         FROM_ADDRESS="noreply@example.com",
         LLM_MODEL="mistral-small-latest",
         RESEND_WEBHOOK_SECRET="whsec_dGVzdHNlY3JldA==",
+        CLERK_SECRET_KEY="sk_test_clerk",
     )
     defaults.update(overrides)
     return Config(**defaults)

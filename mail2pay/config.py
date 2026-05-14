@@ -9,6 +9,7 @@ class Config(BaseSettings):
     mistral_api_key: str = Field(alias="MISTRAL_API_KEY")
     from_address: str = Field(alias="FROM_ADDRESS")
     webhook_secret: str = Field(alias="RESEND_WEBHOOK_SECRET")
+    clerk_secret_key: str = Field(alias="CLERK_SECRET_KEY")
     llm_model: str = Field(default="mistral-small-latest", alias="LLM_MODEL")
 
 
