@@ -2,6 +2,7 @@
 import resend
 
 from .config import Config
+from .models import PaymentDetails
 
 
 class Mailer:
@@ -15,7 +16,7 @@ class Mailer:
         resend.api_key = cfg.resend_api_key
         self._from = cfg.from_address
 
-    def send_reply(self, to: str, qr_b64: str) -> None:
+    def send_reply(self, to: str, qr_b64: str, payment: PaymentDetails) -> None:
         """Send a reply email with the EPC QR code PNG attached."""
         resend.Emails.send({
             "from": self._from,
@@ -23,7 +24,10 @@ class Mailer:
             "subject": "Your payment QR code",
             "html": (
                 "<p>Please find your EPC payment QR code attached.</p>"
-                "<p>Scan it with your banking app to initiate the payment.</p>"
+                f"<p>This QR code initiates a payment of "
+                f"<strong>€{payment.amount}</strong> "
+                f"to <strong>{payment.beneficiary_name}</strong>.</p>"
+                "<p>Scan it with your banking app to complete the payment.</p>"
             ),
             "attachments": [
                 {

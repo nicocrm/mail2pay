@@ -1,6 +1,7 @@
 # mail2pay
 
-Serverless function that receives inbound email webhooks from [Resend](https://resend.com), extracts payment details from attached PDF invoices via Mistral AI, generates a Belgian EPC QR code, and replies to the sender with the QR code attached.
+A service that receives invoices on an inbound email webhook, extracts payment details from attached PDF invoices via
+Mistral AI, generates a Belgian EPC QR code, and replies to the sender with the QR code attached.
 
 ## How it works
 

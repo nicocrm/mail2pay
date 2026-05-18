@@ -134,7 +134,7 @@ def handle(event, context):
         qr_b64 = generate_qr_base64(payment)
         logger.info("QR code generated (%d bytes base64).", len(qr_b64))
 
-        _mailer.send_reply(from_addr, qr_b64)
+        _mailer.send_reply(from_addr, qr_b64, payment)
         logger.debug("Reply sent to %s.", from_addr)  # PII – debug only
 
     except Exception:
