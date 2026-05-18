@@ -48,7 +48,13 @@ def _bootstrap() -> None:
     _mailer = Mailer(_cfg)  # also sets resend.api_key
 
 
-def _notify_sender_of_failure(from_addr: str, email_id: str) -> None:
+def _notify_sender_of_failure(
+    from_addr: str,
+    email_id: str,
+    *,
+    message_id: str | None = None,
+    subject: str | None = None,
+) -> None:
     """Send a generic error-reply email unless loop-prevention rules suppress it.
 
     Failures sending the error reply itself are logged and swallowed (R9) — we
@@ -62,7 +68,11 @@ def _notify_sender_of_failure(from_addr: str, email_id: str) -> None:
         return
 
     try:
-        _mailer.send_error_reply(from_addr)
+        _mailer.send_error_reply(
+            from_addr,
+            in_reply_to=message_id,
+            original_subject=subject,
+        )
     except Exception:
         logger.exception("Failed to send error reply email_id=%s", email_id)
 
@@ -110,7 +120,12 @@ def handle(event, context):
             "PDF attachment too large for email_id=%s – non-retryable, returning 200",
             data.email_id,
         )
-        _notify_sender_of_failure(from_addr, data.email_id)
+        _notify_sender_of_failure(
+            from_addr,
+            data.email_id,
+            message_id=data.message_id,
+            subject=data.subject,
+        )
         return {"statusCode": 200, "body": "ok"}
     except Exception:
         logger.exception(
@@ -134,11 +149,22 @@ def handle(event, context):
         qr_b64 = generate_qr_base64(payment)
         logger.info("QR code generated (%d bytes base64).", len(qr_b64))
 
-        _mailer.send_reply(from_addr, qr_b64, payment)
+        _mailer.send_reply(
+            from_addr,
+            qr_b64,
+            payment,
+            in_reply_to=data.message_id,
+            original_subject=data.subject,
+        )
         logger.debug("Reply sent to %s.", from_addr)  # PII – debug only
 
     except Exception:
         logger.exception("mail2pay processing failure")
-        _notify_sender_of_failure(from_addr, data.email_id)
+        _notify_sender_of_failure(
+            from_addr,
+            data.email_id,
+            message_id=data.message_id,
+            subject=data.subject,
+        )
 
     return {"statusCode": 200, "body": "ok"}

@@ -56,6 +56,7 @@ class ReceivedEmailData(BaseModel):
     from_: EmailStr = Field(alias="from")
     to: list[str] = Field(default_factory=list)
     subject: str | None = None
+    message_id: str | None = None
     attachments: list[WebhookAttachment] = Field(default_factory=list)
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
