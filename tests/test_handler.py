@@ -22,8 +22,13 @@ def _make_pdf_bytes() -> bytes:
     return buf.getvalue()
 
 
-def _make_event(from_addr: str = "sender@example.com", to_addr: str = "noreply@test.com") -> dict:
-    body = {
+def _make_event(
+    from_addr: str = "sender@example.com",
+    to_addr: str = "noreply@test.com",
+    message_id: str | None = None,
+    subject: str | None = None,
+) -> dict:
+    body: dict = {
         "type": "email.received",
         "data": {
             "email_id": "evt_1",
@@ -38,6 +43,10 @@ def _make_event(from_addr: str = "sender@example.com", to_addr: str = "noreply@t
             ],
         },
     }
+    if message_id is not None:
+        body["data"]["message_id"] = message_id
+    if subject is not None:
+        body["data"]["subject"] = subject
     return {"body": json.dumps(body)}
 
 
@@ -73,7 +82,13 @@ def reset_handler_globals():
 # Test helpers
 # ---------------------------------------------------------------------------
 
-def _run_handler(monkeypatch, payment: PaymentDetails, env: dict | None = None):
+def _run_handler(
+    monkeypatch,
+    payment: PaymentDetails,
+    env: dict | None = None,
+    message_id: str | None = None,
+    subject: str | None = None,
+):
     """Run handle() with Resend and download mocked, webhook verification bypassed."""
     env = env or {}
     base_env = {
@@ -103,7 +118,9 @@ def _run_handler(monkeypatch, payment: PaymentDetails, env: dict | None = None):
          patch("mail2pay.download._download", return_value=_make_pdf_bytes()), \
          patch("handler.verify_webhook", return_value=True):
         import handler
-        result = handler.handle(_make_event(), context=None)
+        result = handler.handle(
+            _make_event(message_id=message_id, subject=subject), context=None
+        )
 
     return result, resend_send_mock
 
@@ -270,6 +287,8 @@ def _run_handler_with_mailer_stub(
     monkeypatch,
     *,
     from_addr: str = "sender@example.com",
+    message_id: str | None = None,
+    subject: str | None = None,
     extractor_side_effect: Exception | None = None,
     qr_side_effect: Exception | None = None,
     pdf_side_effect: Exception | None = None,
@@ -350,7 +369,7 @@ def _run_handler_with_mailer_stub(
             qr_mock.return_value = "aGVsbG8="
 
         import handler
-        result = handler.handle(_make_event(from_addr=from_addr), context=None)
+        result = handler.handle(_make_event(from_addr=from_addr, message_id=message_id, subject=subject), context=None)
 
     return result, mailer_instance
 
@@ -368,7 +387,8 @@ def test_extractor_failure_triggers_error_reply(monkeypatch):
         monkeypatch, extractor_side_effect=validation_error
     )
     assert result["statusCode"] == 200
-    mailer.send_error_reply.assert_called_once_with("sender@example.com")
+    mailer.send_error_reply.assert_called_once()
+    assert mailer.send_error_reply.call_args.args == ("sender@example.com",)
     mailer.send_reply.assert_not_called()
 
 
@@ -379,7 +399,8 @@ def test_pdf_too_large_triggers_error_reply(monkeypatch):
         monkeypatch, download_side_effect=PDFTooLargeError("too big")
     )
     assert result["statusCode"] == 200
-    mailer.send_error_reply.assert_called_once_with("sender@example.com")
+    mailer.send_error_reply.assert_called_once()
+    assert mailer.send_error_reply.call_args.args == ("sender@example.com",)
     mailer.send_reply.assert_not_called()
 
 
@@ -388,7 +409,8 @@ def test_qr_failure_triggers_error_reply(monkeypatch):
         monkeypatch, qr_side_effect=RuntimeError("qr failed")
     )
     assert result["statusCode"] == 200
-    mailer.send_error_reply.assert_called_once_with("sender@example.com")
+    mailer.send_error_reply.assert_called_once()
+    assert mailer.send_error_reply.call_args.args == ("sender@example.com",)
 
 
 def test_pdf_parse_failure_triggers_error_reply(monkeypatch):
@@ -396,7 +418,8 @@ def test_pdf_parse_failure_triggers_error_reply(monkeypatch):
         monkeypatch, pdf_side_effect=RuntimeError("parse failed")
     )
     assert result["statusCode"] == 200
-    mailer.send_error_reply.assert_called_once_with("sender@example.com")
+    mailer.send_error_reply.assert_called_once()
+    assert mailer.send_error_reply.call_args.args == ("sender@example.com",)
 
 
 def test_send_reply_failure_also_triggers_error_reply(monkeypatch):
@@ -405,7 +428,8 @@ def test_send_reply_failure_also_triggers_error_reply(monkeypatch):
         monkeypatch, send_reply_side_effect=RuntimeError("boom")
     )
     assert result["statusCode"] == 200
-    mailer.send_error_reply.assert_called_once_with("sender@example.com")
+    mailer.send_error_reply.assert_called_once()
+    assert mailer.send_error_reply.call_args.args == ("sender@example.com",)
 
 
 def test_self_loop_suppresses_error_reply(monkeypatch):
@@ -438,7 +462,8 @@ def test_error_reply_send_failure_is_swallowed(monkeypatch):
         send_error_reply_side_effect=RuntimeError("transport down"),
     )
     assert result["statusCode"] == 200
-    mailer.send_error_reply.assert_called_once_with("sender@example.com")
+    mailer.send_error_reply.assert_called_once()
+    assert mailer.send_error_reply.call_args.args == ("sender@example.com",)
 
 
 def test_retryable_download_error_does_not_trigger_error_reply(monkeypatch):
@@ -450,3 +475,67 @@ def test_retryable_download_error_does_not_trigger_error_reply(monkeypatch):
     assert result["statusCode"] == 500
     mailer.send_error_reply.assert_not_called()
     mailer.send_reply.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests – threading kwargs propagated from webhook data
+# ---------------------------------------------------------------------------
+
+def test_send_reply_receives_threading_kwargs(monkeypatch):
+    """Success path: mailer.send_reply called with in_reply_to and original_subject."""
+    payment = PaymentDetails(
+        beneficiary_name="Acme BV", amount="10.00",
+        iban="BE68539007547034", communication="REF"
+    )
+    _, mailer = _run_handler_with_mailer_stub(
+        monkeypatch,
+        message_id="<fwd123@gmail.com>",
+        subject="Fwd: Facture 42",
+    )
+    mailer.send_reply.assert_called_once()
+    kwargs = mailer.send_reply.call_args.kwargs
+    assert kwargs.get("in_reply_to") == "<fwd123@gmail.com>"
+    assert kwargs.get("original_subject") == "Fwd: Facture 42"
+
+
+def test_send_error_reply_receives_threading_kwargs_on_extractor_failure(monkeypatch):
+    """Error path (extractor): mailer.send_error_reply called with threading kwargs."""
+    from pydantic import ValidationError
+    try:
+        PaymentDetails(beneficiary_name="x", amount="0", iban="BE68539007547034", communication="")
+    except ValidationError as exc:
+        validation_error = exc
+
+    _, mailer = _run_handler_with_mailer_stub(
+        monkeypatch,
+        extractor_side_effect=validation_error,
+        message_id="<fwd456@gmail.com>",
+        subject="Fwd: Invoice",
+    )
+    mailer.send_error_reply.assert_called_once()
+    kwargs = mailer.send_error_reply.call_args.kwargs
+    assert kwargs.get("in_reply_to") == "<fwd456@gmail.com>"
+    assert kwargs.get("original_subject") == "Fwd: Invoice"
+
+
+def test_send_error_reply_receives_threading_kwargs_on_pdf_too_large(monkeypatch):
+    """Error path (PDFTooLargeError): send_error_reply called with threading kwargs."""
+    from mail2pay.download import PDFTooLargeError
+    _, mailer = _run_handler_with_mailer_stub(
+        monkeypatch,
+        download_side_effect=PDFTooLargeError("too big"),
+        message_id="<fwd789@gmail.com>",
+        subject="Fwd: Big Invoice",
+    )
+    mailer.send_error_reply.assert_called_once()
+    kwargs = mailer.send_error_reply.call_args.kwargs
+    assert kwargs.get("in_reply_to") == "<fwd789@gmail.com>"
+    assert kwargs.get("original_subject") == "Fwd: Big Invoice"
+
+
+def test_send_reply_no_threading_when_message_id_absent(monkeypatch):
+    """No message_id in webhook → in_reply_to=None passed to send_reply."""
+    _, mailer = _run_handler_with_mailer_stub(monkeypatch)
+    mailer.send_reply.assert_called_once()
+    kwargs = mailer.send_reply.call_args.kwargs
+    assert kwargs.get("in_reply_to") is None

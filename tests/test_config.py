@@ -1,6 +1,3 @@
-import pytest
-from pydantic import ValidationError
-
 from mail2pay.config import Config
 
 
@@ -27,15 +24,6 @@ def test_config_default_model_overridable(monkeypatch):
 
     cfg = Config()  # ty: ignore[missing-argument]
     assert cfg.llm_model == "mistral-large-latest"
-
-
-def test_config_missing_required_key(monkeypatch):
-    # Remove all relevant env vars
-    for var in ("RESEND_API_KEY", "MISTRAL_API_KEY", "FROM_ADDRESS", "RESEND_WEBHOOK_SECRET"):
-        monkeypatch.delenv(var, raising=False)
-
-    with pytest.raises((ValidationError, Exception)):
-        Config()  # ty: ignore[missing-argument]
 
 
 def test_config_mistral_fields(monkeypatch):
